@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.sharif.theftguard"
+    namespace = "com.systemguard.mobi"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,11 +12,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.sharif.theftguard"
+        applicationId = "com.systemguard.mobi"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
-        versionName = "V1.0"
+        versionName = "V1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

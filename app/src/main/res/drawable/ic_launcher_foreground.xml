@@ -5,33 +5,33 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Premium Liquid Glass Shield - Adjusted Size -->
+    <!-- Premium Liquid Glass Shield - Centered Vertically (Shifted Up by 7 units) -->
     <path
-        android:pathData="M54,30 L28,40 C28,40 28,58 28,68 C28,84 54,92 54,92 C54,92 80,84 80,68 C80,58 80,40 80,40 L54,30 Z">
+        android:pathData="M54,23 L28,33 C28,33 28,51 28,61 C28,77 54,85 54,85 C54,85 80,77 80,61 C80,51 80,33 80,33 L54,23 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="54"
-                android:startY="30"
+                android:startY="23"
                 android:endX="54"
-                android:endY="92"
+                android:endY="85"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FF00F2FF" /> <!-- Vibrant Cyan -->
-                <item android:offset="0.5" android:color="#FF0061FF" /> <!-- Deep Blue -->
-                <item android:offset="1.0" android:color="#FF001A4D" /> <!-- Darker Edge -->
+                <item android:offset="0.0" android:color="#FF00F2FF" />
+                <item android:offset="0.5" android:color="#FF0061FF" />
+                <item android:offset="1.0" android:color="#FF001A4D" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Glass Highlight Reflection (Top) -->
+    <!-- Glass Highlight Reflection (Top) - Shifted Up -->
     <path
-        android:pathData="M54,32 L32,41 C32,41 32,50 32,54 C45,51 63,51 76,54 C76,50 76,41 76,41 L54,32 Z"
+        android:pathData="M54,25 L32,34 C32,34 32,43 32,47 C45,44 63,44 76,47 C76,43 76,34 76,34 L54,25 Z"
         android:fillAlpha="0.6">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="54"
-                android:startY="32"
+                android:startY="25"
                 android:endX="54"
-                android:endY="54"
+                android:endY="47"
                 android:type="linear">
                 <item android:offset="0.0" android:color="#FFFFFFFF" />
                 <item android:offset="1.0" android:color="#00FFFFFF" />
@@ -39,15 +39,15 @@
         </aapt:attr>
     </path>
 
-    <!-- Inner Glow -->
+    <!-- Inner Glow - Shifted Up -->
     <path
-        android:pathData="M54,35 L34,43 C34,43 34,58 34,66 C34,78 54,86 54,86 C54,86 74,78 74,66 C74,58 74,43 74,43 L54,35 Z"
+        android:pathData="M54,28 L34,36 C34,36 34,51 34,59 C34,71 54,79 54,79 C54,79 74,71 74,59 C74,51 74,36 74,36 L54,28 Z"
         android:fillAlpha="0.15">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
                 android:centerX="54"
-                android:centerY="54"
+                android:centerY="47"
                 android:gradientRadius="40">
                 <item android:offset="0.0" android:color="#FFFFFFFF" />
                 <item android:offset="1.0" android:color="#00FFFFFF" />
@@ -55,22 +55,22 @@
         </aapt:attr>
     </path>
 
-    <!-- Sleek Lock Icon - Proportional -->
-    <!-- Shackle -->
+    <!-- Sleek Lock Icon - Proportional & Centered -->
+    <!-- Shackle - Shifted Up -->
     <path
-        android:pathData="M48,56 V52 C48,48.7 50.7,46 54,46 C57.3,46 60,48.7 60,52 V56"
+        android:pathData="M48,49 V45 C48,41.7 50.7,39 54,39 C57.3,39 60,41.7 60,45 V49"
         android:strokeWidth="3.5"
         android:strokeColor="#FFFFFF"
         android:strokeLineCap="round" />
 
-    <!-- Lock Body -->
+    <!-- Lock Body - Shifted Up -->
     <path
-        android:pathData="M44,56 H64 V68 C64,70.2 62.2,72 60,72 H48 C45.8,72 44,70.2 44,68 V56 Z"
+        android:pathData="M44,49 H64 V61 C64,63.2 62.2,65 60,65 H48 C45.8,65 44,63.2 44,61 V49 Z"
         android:fillColor="#FFFFFF" />
 
-    <!-- Keyhole Detail -->
+    <!-- Keyhole Detail - Shifted Up -->
     <path
-        android:pathData="M54,61 C52.9,61 52,61.9 52,63 C52,63.8 52.5,64.5 53.2,64.8 L52.5,68 H55.5 L54.8,64.8 C55.5,64.5 56,63.8 56,63 C56,61.9 55.1,61 54,61 Z"
+        android:pathData="M54,54 C52.9,54 52,54.9 52,56 C52,56.8 52.5,57.5 53.2,57.8 L52.5,61 H55.5 L54.8,57.8 C55.5,57.5 56,56.8 56,56 C56,54.9 55.1,54 54,54 Z"
         android:fillColor="#0061FF" />
 
 </vector>
