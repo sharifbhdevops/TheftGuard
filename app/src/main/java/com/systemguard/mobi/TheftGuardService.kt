@@ -49,21 +49,26 @@ class TheftGuardService : LifecycleService() {
         private var isEmergencyAlarmActive = false
         private var simReceiver: SimStateReceiver? = null
         private var wakeLock: PowerManager.WakeLock? = null
-        
-        fun start(context: Context) {
-            val intent = Intent(context, TheftGuardService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var subscriptionManager: SubscriptionManager? = null
 
-    // প্রতি ৩০ সেকেন্ড পর পর সিম চেক করার রানএবল
+    // আনলক ডিটেকশন ওয়াচডগ: অ্যালার্ম চলাকালীন প্রতি ৫০০ms পর পর চেক করবে
+    private val unlockWatchdog = object : Runnable {
+        override fun run() {
+            if (isEmergencyAlarmActive) {
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                if (!km.isKeyguardLocked) {
+                    Log.d("TheftGuard", "Watchdog detected device unlock! Stopping alarm.")
+                    stopAlarm()
+                } else {
+                    mainHandler.postDelayed(this, 500)
+                }
+            }
+        }
+    }
+
     private val simCheckRunnable = object : Runnable {
         override fun run() {
             if (!isEmergencyAlarmActive) {
@@ -83,17 +88,16 @@ class TheftGuardService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        acquireWakeLock() // ফোনকে সজাগ রাখা
-        registerSimReceiver() // ব্রডকাস্ট লিসেনার
-        startSubscriptionListener() // হার্ডওয়্যার মনিটর
-        mainHandler.post(simCheckRunnable) // পিরিওডিক চেক শুরু
+        acquireWakeLock()
+        registerSimReceiver()
+        startSubscriptionListener()
+        mainHandler.post(simCheckRunnable)
     }
 
     private fun acquireWakeLock() {
-        // ফোন স্লিপে গেলেও যেন প্রসেসর কাজ করে
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TheftGuard::ServiceWakeLock")
-        wakeLock?.acquire(10 * 60 * 60 * 1000L) // ১০ ঘণ্টার সেফটি লিমিট
+        wakeLock?.acquire(10 * 60 * 60 * 1000L)
     }
 
     private fun startSubscriptionListener() {
@@ -109,11 +113,9 @@ class TheftGuardService : LifecycleService() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            // ফোন লক থাকলে এবং সিম লিস্ট খালি হলে অ্যালার্ম বাজবে
             if (keyguardManager.isKeyguardLocked) {
                 val activeList = subscriptionManager?.activeSubscriptionInfoList
                 if (activeList.isNullOrEmpty()) {
-                    Log.d("TheftGuard", "SIM Absence Detected!")
                     playEmergencyAlarm()
                 }
             }
@@ -142,10 +144,7 @@ class TheftGuardService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         
         val action = intent?.action
-        
-        // আনলক করলে সব বন্ধ করা
         if (action == "STOP_ALARM") {
-            Log.d("TheftGuard", "Stopping all alarms...")
             stopAlarm()
             if (!isEmailSending.get() && !isCapturing.get()) stopSelf()
             return START_NOT_STICKY
@@ -153,7 +152,6 @@ class TheftGuardService : LifecycleService() {
 
         val notification = createNotification()
         try {
-            // অ্যান্ড্রয়েড ১৪+ এর জন্য বিশেষ সিকিউরিটি সার্ভিস টাইপ
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             } else {
@@ -170,7 +168,6 @@ class TheftGuardService : LifecycleService() {
 
         val attempts = intent?.getIntExtra("attempt_count", 0) ?: 0
         if (attempts >= 4) {
-            // ভুল পাসওয়ার্ড ডিটেক্ট হলে ছবি ও লোকেশন প্রসেস করা
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or 
@@ -181,7 +178,7 @@ class TheftGuardService : LifecycleService() {
             captureAndProcess(getSharedPreferences("AppPrefs", Context.MODE_PRIVATE), attempts)
         }
 
-        scheduleWatchdog() // সার্ভিস রানিং রাখার জন্য ওয়াচডগ
+        scheduleWatchdog()
         return START_STICKY
     }
 
@@ -215,7 +212,6 @@ class TheftGuardService : LifecycleService() {
         val channelId = "TheftGuardServiceChannel"
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // গুরুত্ব কমিয়ে LOW করে দেওয়া হয়েছে যাতে সাউন্ড বা পপ-আপ না হয়
             val channel = NotificationChannel(channelId, "TheftGuard Protection", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
             }
@@ -233,7 +229,6 @@ class TheftGuardService : LifecycleService() {
 
     private fun playLoudAlarm() {
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        // যদি ফোন ইতোমধ্যে আনলক হয়ে যায়, তবে অ্যালার্ম বাজবে না
         if (!keyguardManager.isKeyguardLocked) return
 
         try {
@@ -248,7 +243,6 @@ class TheftGuardService : LifecycleService() {
                 prepare()
                 start()
             }
-            
             val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), 0))
@@ -262,11 +256,17 @@ class TheftGuardService : LifecycleService() {
     private fun playEmergencyAlarm() {
         if (isEmergencyAlarmActive) return
         isEmergencyAlarmActive = true
+        
+        // ওয়াচডগ শুরু করা যা আনলক ডিটেক্ট করবে
+        mainHandler.post(unlockWatchdog)
+        
         playLoudAlarm()
     }
 
     private fun stopAlarm() {
         isEmergencyAlarmActive = false 
+        mainHandler.removeCallbacks(unlockWatchdog) // ওয়াচডগ থামিয়ে দেওয়া
+        
         mediaPlayer?.let { 
             try {
                 if (it.isPlaying) it.stop()
@@ -282,6 +282,7 @@ class TheftGuardService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         mainHandler.removeCallbacks(simCheckRunnable)
+        mainHandler.removeCallbacks(unlockWatchdog)
         if (wakeLock?.isHeld == true) wakeLock?.release()
         simReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) {} }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
