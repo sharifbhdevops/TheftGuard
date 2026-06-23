@@ -173,10 +173,10 @@ fun TheftGuardDashboard() {
         pendingFeature = null
     }
 
-    // Google Sign In Setup - Updated Scope to fix Authentication Error
+    // Google Sign In Setup - Updated to more restricted scope (gmail.send) for easier verification
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestEmail()
-        .requestScopes(Scope("https://mail.google.com/"))
+        .requestScopes(Scope("https://www.googleapis.com/auth/gmail.send"))
         .build()
     val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
 
@@ -377,13 +377,6 @@ fun TheftGuardDashboard() {
         )
         
         Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Note: This app does not collect or share any user data. To uninstall, you must first deactivate 'Device Administrator' from the app settings.",
-            color = Color.Gray,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
         
         Spacer(modifier = Modifier.height(40.dp))
     }
@@ -433,14 +426,14 @@ fun TheftGuardDashboard() {
                          "a loud emergency alarm will trigger instantly.\n\n" +
                          "3. Email Alerts: Captured intruder info is sent directly to your " +
                          "connected Google account for remote tracking.\n\n" +
-                         "All photos are saved in your Gallery (DCIM/Camera).")
+                         "Note: This app does not collect or share any user data. To uninstall, you must first deactivate 'Device Administrator' from the app settings.")
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(text = "Version: V1.2", fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showInfoDialog = false }) {
-                    Text("Got it")
+                    Text("Close")
                 }
             },
             containerColor = Color(0xFF1E293B),

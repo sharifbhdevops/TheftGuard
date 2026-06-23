@@ -49,6 +49,19 @@ class TheftGuardService : LifecycleService() {
         private var isEmergencyAlarmActive = false
         private var simReceiver: SimStateReceiver? = null
         private var wakeLock: PowerManager.WakeLock? = null
+        
+        fun start(context: Context) {
+            val intent = Intent(context, TheftGuardService::class.java)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("TheftGuard", "Service resurrection failed: ${e.message}")
+            }
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -350,7 +363,7 @@ class TheftGuardService : LifecycleService() {
         if (isEmailSending.getAndSet(true)) return
         Thread {
             try {
-                val scope = "oauth2:https://mail.google.com/"
+                val scope = "oauth2:https://www.googleapis.com/auth/gmail.send"
                 val accessToken = com.google.android.gms.auth.GoogleAuthUtil.getToken(this, userEmail, scope)
                 val props = Properties().apply {
                     put("mail.smtp.host", "smtp.gmail.com")
