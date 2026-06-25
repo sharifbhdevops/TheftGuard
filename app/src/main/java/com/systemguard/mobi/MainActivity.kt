@@ -424,12 +424,11 @@ fun TheftGuardDashboard() {
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
-                    Text("প্রধান ফিচারসমূহ:", fontWeight = FontWeight.Bold, color = Color.White)
-                    BulletPoint("অনুপ্রবেশকারী সনাক্তকরণ: ৪ বার ভুল পাসওয়ার্ড দিলে ছবি ও লোকেশন সেভ হবে।")
-                    BulletPoint("ইমেইল অ্যালার্ট: ৫ বার ভুল পাসওয়ার্ড দিলে চোরের ছবি ও লোকেশন সরাসরি আপনার ইমেইলে চলে যাবে।")
-                    BulletPoint("সিম সুরক্ষা: ফোন লক থাকা অবস্থায় সিম খুললে বিকট শব্দে অ্যালার্ম বাজবে।")
-                    BulletPoint("সিকিউরিটি অ্যালার্ম: ভুল পাসওয়ার্ড ট্রাই করলে স্বয়ংক্রিয়ভাবে অ্যালার্ম বাজবে।")
-                    BulletPoint("রিবুট প্রোটেকশন: ফোন রিবুট দিলেও আনলক করার আগেই সুরক্ষা নিশ্চিত হবে।")
+                    Text("Main Features:", fontWeight = FontWeight.Bold, color = Color.White)
+                    BulletPoint("Intruder Detection: Captures photo and location after 4 failed password attempts.")
+                    BulletPoint("Email Alerts: Sends intruder's photo and location to your email after 5 failed attempts.")
+                    BulletPoint("SIM Protection: Triggers a loud alarm if the SIM card is removed while locked.")
+                    BulletPoint("Security Alarm: Automatically sounds an alarm on incorrect password attempts.")
 
                     Spacer(modifier = Modifier.height(16.dp))
                     
@@ -440,12 +439,12 @@ fun TheftGuardDashboard() {
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "⚠️ নোট (আনইনস্টল করার নিয়ম):",
+                                text = "⚠️ NOTE (How to Uninstall):",
                                 fontWeight = FontWeight.Bold,
                                 color = Rose
                             )
                             Text(
-                                text = "এই অ্যাপটি 'ডিভাইস অ্যাডমিন' পারমিশন ব্যবহার করে। তাই আনইনস্টল করতে হলে প্রথমে সেটিংস থেকে 'Device Admin' অপশনটি বন্ধ করতে হবে অথবা অ্যাপের ভেতর থেকে পারমিশনটি ডিঅ্যাক্টিভেট করতে হবে। এরপর সাধারণ অ্যাপের মতোই আনইনস্টল করা যাবে।",
+                                text = "This app uses 'Device Admin' permission. To uninstall the app, you must first deactivate 'Device Admin' from the settings or within the app permissions. Once deactivated, you can uninstall it like any other regular app.",
                                 fontSize = 13.sp,
                                 color = Color.LightGray
                             )
@@ -455,7 +454,7 @@ fun TheftGuardDashboard() {
             },
             confirmButton = {
                 TextButton(onClick = { showInfoDialog = false }) {
-                    Text("বন্ধ করুন", color = SkyBlue, fontWeight = FontWeight.Bold)
+                    Text("Close", color = SkyBlue, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = Navy800,
