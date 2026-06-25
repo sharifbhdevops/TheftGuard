@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,7 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import com.systemguard.mobi.ui.theme.TheftGuardTheme
+import com.systemguard.mobi.ui.theme.*
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -53,11 +54,18 @@ import com.google.android.gms.common.api.Scope
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Ensure SharedPreferences are in Device Protected Storage for reboot support
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val directBootContext = createDeviceProtectedStorageContext()
+            directBootContext.moveSharedPreferencesFrom(this, "AppPrefs")
+        }
+
         setContent {
             TheftGuardTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F172A)
+                    color = Navy900
                 ) {
                     TheftGuardDashboard()
                 }
@@ -69,7 +77,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TheftGuardDashboard() {
     val context = LocalContext.current
-    val sharedPreferences = remember { context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE) }
+    val sharedPreferences = remember { 
+        val prefContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createDeviceProtectedStorageContext()
+        } else {
+            context
+        }
+        prefContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE) 
+    }
 
     var isCameraEnabled by remember { mutableStateOf(sharedPreferences.getBoolean("CameraEnabled", false)) }
     var isAlarmEnabled by remember { mutableStateOf(sharedPreferences.getBoolean("AlarmEnabled", false)) }
@@ -80,7 +95,6 @@ fun TheftGuardDashboard() {
     var showInfoDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     
-    // পারমিশন পাওয়ার পর কোন ফিচারটি অন করতে হবে তা ট্র্যাক করার জন্য
     var pendingFeature by remember { mutableStateOf<String?>(null) }
 
     var hasCameraPermission by remember { 
@@ -102,7 +116,6 @@ fun TheftGuardDashboard() {
     val adminComponent = ComponentName(context, MyAdminReceiver::class.java)
     var isAdminActive by remember { mutableStateOf(dpm.isAdminActive(adminComponent)) }
 
-    // Refresh admin and battery status when activity resumes
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -119,25 +132,14 @@ fun TheftGuardDashboard() {
 
     val isAppActive = (isCameraEnabled || isAlarmEnabled || isGmailEnabled || isSimEnabled) && isAdminActive
 
-    // Start or stop service based on protection status
     LaunchedEffect(isAppActive) {
         if (isAppActive) {
-            val serviceIntent = Intent(context, TheftGuardService::class.java)
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-            } catch (e: Exception) {
-                Log.e("TheftGuard", "Service start failed: ${e.message}")
-            }
+            TheftGuardService.start(context)
         } else {
             context.stopService(Intent(context, TheftGuardService::class.java))
         }
     }
 
-    // Permission check helper function
     fun checkPermissions(permissions: Array<String>): Boolean {
         return permissions.all {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
@@ -155,7 +157,6 @@ fun TheftGuardDashboard() {
         hasLocationPermission = locationGranted
         hasPhoneStatePermission = phoneGranted
 
-        // অটো-এনেবল লজিক
         when (pendingFeature) {
             "CAMERA_LOC" -> {
                 if (cameraGranted && locationGranted) {
@@ -173,7 +174,6 @@ fun TheftGuardDashboard() {
         pendingFeature = null
     }
 
-    // Google Sign In Setup - Updated to more restricted scope (gmail.send) for easier verification
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestEmail()
         .requestScopes(Scope("https://www.googleapis.com/auth/gmail.send"))
@@ -192,14 +192,13 @@ fun TheftGuardDashboard() {
                 Toast.makeText(context, "Logged in as $it", Toast.LENGTH_SHORT).show()
             }
         } catch (e: ApiException) {
-            // Error 10 is usually due to missing SHA-1 in Google Console
             Log.e("TheftGuard", "Sign in failed code: ${e.statusCode}")
-            Toast.makeText(context, "Sign in failed: ${e.message} (Code: ${e.statusCode})", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Sign in failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     val mainBackgroundGradient = Brush.verticalGradient(
-        colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
+        colors = listOf(Navy900, Navy800, Navy900)
     )
 
     Column(
@@ -225,7 +224,7 @@ fun TheftGuardDashboard() {
                 Text(
                     text = "Advanced Security AI",
                     fontSize = 12.sp,
-                    color = Color(0xFF38BDF8),
+                    color = SkyBlue,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -233,12 +232,12 @@ fun TheftGuardDashboard() {
                 modifier = Modifier
                     .size(45.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1E293B))
-                    .border(1.dp, Color(0xFF334155), CircleShape)
+                    .background(Navy800)
+                    .border(1.dp, Navy700, CircleShape)
                     .clickable { showInfoDialog = true },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Info, contentDescription = "Info", tint = Color(0xFF38BDF8))
+                Icon(Icons.Default.Info, contentDescription = "Info", tint = SkyBlue)
             }
         }
 
@@ -255,9 +254,8 @@ fun TheftGuardDashboard() {
         )
 
         Column {
-            ModernFeatureCard("Capture Photo & Location", Icons.Default.CameraAlt, isCameraEnabled, Color(0xFF10B981)) { enabled ->
+            ModernFeatureCard("Capture Photo & Location", Icons.Default.CameraAlt, isCameraEnabled, Emerald) { enabled ->
                 if (enabled) {
-                    // Enable after checking camera and location permissions
                     if (checkPermissions(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))) {
                         isCameraEnabled = true
                         sharedPreferences.edit { putBoolean("CameraEnabled", true) }
@@ -270,13 +268,12 @@ fun TheftGuardDashboard() {
                     sharedPreferences.edit { putBoolean("CameraEnabled", false) }
                 }
             }
-            ModernFeatureCard("Security Alarm", Icons.Default.NotificationsActive, isAlarmEnabled, Color(0xFF10B981)) {
+            ModernFeatureCard("Security Alarm", Icons.Default.NotificationsActive, isAlarmEnabled, Emerald) {
                 isAlarmEnabled = it
                 sharedPreferences.edit { putBoolean("AlarmEnabled", it) }
             }
-            ModernFeatureCard("SIM Unplug Alarm", Icons.Default.SimCard, isSimEnabled, Color(0xFF10B981)) { enabled ->
+            ModernFeatureCard("SIM Unplug Alarm", Icons.Default.SimCard, isSimEnabled, Emerald) { enabled ->
                 if (enabled) {
-                    // Check phone state permission for SIM detection
                     if (checkPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE))) {
                         isSimEnabled = true
                         sharedPreferences.edit { putBoolean("SimEnabled", true) }
@@ -289,10 +286,10 @@ fun TheftGuardDashboard() {
                     sharedPreferences.edit { putBoolean("SimEnabled", false) }
                 }
             }
-            ModernFeatureCard("Email Alert", Icons.Default.Email, isGmailEnabled, Color(0xFF10B981)) { enabled ->
+            ModernFeatureCard("Email Alert", Icons.Default.Email, isGmailEnabled, Emerald) { enabled ->
                 if (enabled) {
                     if (gmailId == "Not Logged In" || gmailId.isBlank()) {
-                        Toast.makeText(context, "Please login with Google first to enable Email Alerts", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Please login with Google first", Toast.LENGTH_SHORT).show()
                     } else {
                         isGmailEnabled = true
                         sharedPreferences.edit { putBoolean("GmailEnabled", true) }
@@ -306,12 +303,11 @@ fun TheftGuardDashboard() {
 
         Spacer(modifier = Modifier.height(16.dp))
         
-        // OAuth Button Section - Manual Config Removed
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            colors = CardDefaults.cardColors(containerColor = Navy800),
             shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, Color(0xFF334155))
+            border = BorderStroke(1.dp, Navy700)
         ) {
             Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(text = "Account Configuration", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -332,20 +328,20 @@ fun TheftGuardDashboard() {
                     },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isLoggedIn) Color(0xFFEF4444) else Color.White
+                        containerColor = if (isLoggedIn) Rose else Color.White
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = if (isLoggedIn) Icons.Default.Logout else Icons.Default.AccountCircle, 
+                            imageVector = if (isLoggedIn) Icons.AutoMirrored.Filled.Logout else Icons.Default.AccountCircle, 
                             contentDescription = null, 
-                            tint = if (isLoggedIn) Color.White else Color(0xFF0F172A)
+                            tint = if (isLoggedIn) Color.White else Navy900
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (isLoggedIn) "Logout from Google" else "Login with Google", 
-                            color = if (isLoggedIn) Color.White else Color(0xFF0F172A), 
+                            color = if (isLoggedIn) Color.White else Navy900, 
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -358,7 +354,7 @@ fun TheftGuardDashboard() {
             onAdminRequest = {
                 val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                     putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                    putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to detect failed login attempts.")
+                    putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for security.")
                 }
                 context.startActivity(intent)
             },
@@ -375,9 +371,6 @@ fun TheftGuardDashboard() {
                 context.startActivity(intent)
             }
         )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
         Spacer(modifier = Modifier.height(40.dp))
     }
     
@@ -385,7 +378,7 @@ fun TheftGuardDashboard() {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("Logout Confirmation", color = Color.White) },
-            text = { Text("Are you sure you want to logout? This will disable Email Alerts.", color = Color.LightGray) },
+            text = { Text("Are you sure you want to logout?", color = Color.LightGray) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -397,11 +390,10 @@ fun TheftGuardDashboard() {
                                 putBoolean("GmailEnabled", false)
                             }
                             showLogoutDialog = false
-                            Toast.makeText(context, "Logged out successfully", Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
-                    Text("Logout", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text("Logout", color = Rose, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -409,41 +401,75 @@ fun TheftGuardDashboard() {
                     Text("Cancel", color = Color.White)
                 }
             },
-            containerColor = Color(0xFF1E293B)
+            containerColor = Navy800
         )
     }
 
     if (showInfoDialog) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
-            title = { Text("TheftGuard: AI Security") },
+            title = { 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Security, contentDescription = null, tint = SkyBlue)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("TheftGuard: AI Security", fontWeight = FontWeight.Bold)
+                }
+            },
             text = { 
-                Column {
-                    Text("TheftGuard provides multi-layered protection for your device:\n\n" +
-                         "1. Intruder Detection: If someone fails to unlock your phone 5 times, " +
-                         "the app captures their photo and location silently.\n\n" +
-                         "2. SIM Protection: If the SIM card is removed while the phone is locked, " +
-                         "a loud emergency alarm will trigger instantly.\n\n" +
-                         "3. Email Alerts: Captured intruder info is sent directly to your " +
-                         "connected Google account for remote tracking.\n\n" +
-                         "Note: This app does not collect or share any user data. To uninstall, you must first deactivate 'Device Administrator' from the app settings.")
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text = "Version: V1.2",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    Text("প্রধান ফিচারসমূহ:", fontWeight = FontWeight.Bold, color = Color.White)
+                    BulletPoint("অনুপ্রবেশকারী সনাক্তকরণ: ৪ বার ভুল পাসওয়ার্ড দিলে ছবি ও লোকেশন সেভ হবে।")
+                    BulletPoint("ইমেইল অ্যালার্ট: ৫ বার ভুল পাসওয়ার্ড দিলে চোরের ছবি ও লোকেশন সরাসরি আপনার ইমেইলে চলে যাবে।")
+                    BulletPoint("সিম সুরক্ষা: ফোন লক থাকা অবস্থায় সিম খুললে বিকট শব্দে অ্যালার্ম বাজবে।")
+                    BulletPoint("সিকিউরিটি অ্যালার্ম: ভুল পাসওয়ার্ড ট্রাই করলে স্বয়ংক্রিয়ভাবে অ্যালার্ম বাজবে।")
+                    BulletPoint("রিবুট প্রোটেকশন: ফোন রিবুট দিলেও আনলক করার আগেই সুরক্ষা নিশ্চিত হবে।")
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = "Version: V1.2", fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                    
+                    Surface(
+                        color = Rose.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Rose.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "⚠️ নোট (আনইনস্টল করার নিয়ম):",
+                                fontWeight = FontWeight.Bold,
+                                color = Rose
+                            )
+                            Text(
+                                text = "এই অ্যাপটি 'ডিভাইস অ্যাডমিন' পারমিশন ব্যবহার করে। তাই আনইনস্টল করতে হলে প্রথমে সেটিংস থেকে 'Device Admin' অপশনটি বন্ধ করতে হবে অথবা অ্যাপের ভেতর থেকে পারমিশনটি ডিঅ্যাক্টিভেট করতে হবে। এরপর সাধারণ অ্যাপের মতোই আনইনস্টল করা যাবে।",
+                                fontSize = 13.sp,
+                                color = Color.LightGray
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showInfoDialog = false }) {
-                    Text("Close")
+                    Text("বন্ধ করুন", color = SkyBlue, fontWeight = FontWeight.Bold)
                 }
             },
-            containerColor = Color(0xFF1E293B),
+            containerColor = Navy800,
             titleContentColor = Color.White,
             textContentColor = Color.LightGray
         )
     }
-    
-    LaunchedEffect(Unit) {
-        isAdminActive = dpm.isAdminActive(adminComponent)
+}
+
+@Composable
+fun BulletPoint(text: String) {
+    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text("• ", color = SkyBlue, fontWeight = FontWeight.Bold)
+        Text(text = text, fontSize = 14.sp, color = Color.LightGray)
     }
 }
 
@@ -460,21 +486,18 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
         label = "alpha"
     )
 
-    val glowColor = if (isAppActive) Color(0xFF10B981) else Color(0xFFEF4444)
-    val statusText = if (isAppActive) "TheftGuard Active" else "TheftGuard is not active"
+    val glowColor = if (isAppActive) Emerald else Rose
+    val statusText = if (isAppActive) "TheftGuard Active" else "TheftGuard Inactive"
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(if (isAppActive) 20.dp else 0.dp, RoundedCornerShape(24.dp), ambientColor = glowColor, spotColor = glowColor),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            .shadow(if (isAppActive) 10.dp else 0.dp, RoundedCornerShape(24.dp), ambientColor = glowColor, spotColor = glowColor),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF334155))
+        border = BorderStroke(1.dp, Navy700)
     ) {
-        Row(
-            modifier = Modifier.padding(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(60.dp)
@@ -493,11 +516,7 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
             Spacer(modifier = Modifier.width(20.dp))
             Column {
                 Text(text = statusText, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(
-                    text = if (isAppActive) "AI Guarding your device" else "Action required for safety",
-                    color = Color.Gray,
-                    fontSize = 13.sp
-                )
+                Text(text = if (isAppActive) "Device Protected" else "Action Required", color = Color.Gray, fontSize = 13.sp)
             }
         }
     }
@@ -507,18 +526,15 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
 fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, accentColor: Color, onCheckedChange: (Boolean) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.7f)),
+        colors = CardDefaults.cardColors(containerColor = Navy800.copy(alpha = 0.7f)),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (isChecked) accentColor.copy(alpha = 0.3f) else Color(0xFF334155))
+        border = BorderStroke(1.dp, if (isChecked) accentColor.copy(alpha = 0.3f) else Navy700)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .background(if (isChecked) accentColor.copy(alpha = 0.15f) else Color(0xFF334155).copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                    .background(if (isChecked) accentColor.copy(alpha = 0.15f) else Navy700.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(imageVector = icon, contentDescription = null, tint = if (isChecked) accentColor else Color.Gray, modifier = Modifier.size(24.dp))
@@ -528,12 +544,7 @@ fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, acce
             Switch(
                 checked = isChecked, 
                 onCheckedChange = onCheckedChange, 
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White, 
-                    checkedTrackColor = accentColor,
-                    uncheckedThumbColor = Color.LightGray,
-                    uncheckedTrackColor = Color(0xFF334155)
-                )
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor)
             )
         }
     }
@@ -543,18 +554,17 @@ fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, acce
 fun PermissionsStatusSection(isAdmin: Boolean, hasCameraLocation: Boolean, hasPhone: Boolean, isBatteryOptimized: Boolean, onAdminRequest: () -> Unit, onCameraLocationRequest: () -> Unit, onPhoneStateRequest: () -> Unit, onBatteryRequest: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Color(0xFF334155))
+        border = BorderStroke(1.dp, Navy700)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(text = "Permissions", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            
-            PermissionRow("Device Administrator", isAdmin, onAdminRequest)
+            PermissionRow("Device Admin", isAdmin, onAdminRequest)
             PermissionRow("Camera & Location", hasCameraLocation, onCameraLocationRequest)
-            PermissionRow("Phone State (for SIM)", hasPhone, onPhoneStateRequest)
-            PermissionRow("Battery Optimization (Off)", isBatteryOptimized, onBatteryRequest)
+            PermissionRow("Phone State", hasPhone, onPhoneStateRequest)
+            PermissionRow("Battery Optimization", isBatteryOptimized, onBatteryRequest)
         }
     }
 }
@@ -562,22 +572,17 @@ fun PermissionsStatusSection(isAdmin: Boolean, hasCameraLocation: Boolean, hasPh
 @Composable
 fun PermissionRow(label: String, isGranted: Boolean, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-            .clickable(enabled = !isGranted) { onClick() },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(enabled = !isGranted) { onClick() },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Error,
             contentDescription = null,
-            tint = if (isGranted) Color(0xFF34D399) else Color(0xFFFB7185),
+            tint = if (isGranted) SuccessGreen else ErrorRed,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Text(text = label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        if (!isGranted) {
-            Text(text = "REQUIRED", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+        if (!isGranted) Text(text = "REQUIRED", color = SkyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }

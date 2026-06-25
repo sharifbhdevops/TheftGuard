@@ -104,7 +104,7 @@ class TheftGuardService : LifecycleService() {
         acquireWakeLock()
         registerSimReceiver()
         startSubscriptionListener()
-        mainHandler.post(simCheckRunnable)
+        // Removed redundant simCheckRunnable to prevent repeated false alarms
     }
 
     private fun acquireWakeLock() {
@@ -121,15 +121,28 @@ class TheftGuardService : LifecycleService() {
     }
 
     private fun checkSimStatus() {
-        val sharedPreferences = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            createDeviceProtectedStorageContext()
+        } else {
+            this
+        }
+        val sharedPreferences = directBootContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         if (!sharedPreferences.getBoolean("SimEnabled", false)) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            if (keyguardManager.isKeyguardLocked) {
-                val activeList = subscriptionManager?.activeSubscriptionInfoList
-                if (activeList.isNullOrEmpty()) {
+            val activeList = subscriptionManager?.activeSubscriptionInfoList
+            
+            if (activeList.isNullOrEmpty()) {
+                // SIM is absent
+                if (keyguardManager.isKeyguardLocked) {
                     playEmergencyAlarm()
+                }
+            } else {
+                // SIM is present
+                if (isEmergencyAlarmActive) {
+                    Log.d("TheftGuard", "SIM reinserted! Stopping alarm.")
+                    stopAlarm()
                 }
             }
         }
@@ -156,6 +169,14 @@ class TheftGuardService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         
+        // Ensure we are using Device Protected Storage for settings check during Direct Boot
+        val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            createDeviceProtectedStorageContext()
+        } else {
+            this
+        }
+        val sharedPreferences = directBootContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+
         val action = intent?.action
         if (action == "STOP_ALARM") {
             stopAlarm()
@@ -174,6 +195,24 @@ class TheftGuardService : LifecycleService() {
             try { startForeground(1, notification) } catch (e2: Exception) {}
         }
 
+        // If service is started without action (e.g. from boot receiver), check if it should be active
+        val isSimEnabled = sharedPreferences.getBoolean("SimEnabled", false)
+        val isCameraEnabled = sharedPreferences.getBoolean("CameraEnabled", false)
+        val isAlarmEnabled = sharedPreferences.getBoolean("AlarmEnabled", false)
+        val isGmailEnabled = sharedPreferences.getBoolean("GmailEnabled", false)
+        
+        if (!isSimEnabled && !isCameraEnabled && !isAlarmEnabled && !isGmailEnabled && action == null) {
+            Log.d("TheftGuard", "No features enabled. Stopping service.")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         if (action == "START_EMERGENCY_ALARM") {
             playEmergencyAlarm()
             return START_STICKY
@@ -188,7 +227,7 @@ class TheftGuardService : LifecycleService() {
                         (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0))
                 } catch (e: Exception) {}
             }
-            captureAndProcess(getSharedPreferences("AppPrefs", Context.MODE_PRIVATE), attempts)
+            captureAndProcess(attempts)
         }
 
         scheduleWatchdog()
@@ -294,7 +333,7 @@ class TheftGuardService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        mainHandler.removeCallbacks(simCheckRunnable)
+        // Removed simCheckRunnable
         mainHandler.removeCallbacks(unlockWatchdog)
         if (wakeLock?.isHeld == true) wakeLock?.release()
         simReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) {} }
@@ -303,7 +342,14 @@ class TheftGuardService : LifecycleService() {
         }
     }
 
-    private fun captureAndProcess(prefs: android.content.SharedPreferences, attempts: Int) {
+    private fun captureAndProcess(attempts: Int) {
+        val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            createDeviceProtectedStorageContext()
+        } else {
+            this
+        }
+        val prefs = directBootContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+
         if (prefs.getBoolean("AlarmEnabled", false) && attempts >= 5) playLoudAlarm()
         val captureEnabled = prefs.getBoolean("CameraEnabled", false)
         if (captureEnabled) {
