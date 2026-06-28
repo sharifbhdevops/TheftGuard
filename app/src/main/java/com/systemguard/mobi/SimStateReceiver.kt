@@ -25,7 +25,11 @@ class SimStateReceiver : BroadcastReceiver() {
         if (action == Intent.ACTION_USER_PRESENT || action == Intent.ACTION_SCREEN_ON) {
             val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
             if (action == Intent.ACTION_USER_PRESENT || !keyguardManager.isKeyguardLocked) {
-                Log.d("TheftGuard", "Device Unlocked! Stopping alarm...")
+                Log.d("TheftGuard", "Device Unlocked (Action: $action)! Resetting counter and alarm.")
+                
+                // যেভাবেই আনলক হোক (Fingerprint/Pattern), কাউন্টার ০ হবে
+                sharedPreferences.edit(commit = true) { putInt("ManualFailedCount", 0) }
+
                 val stopIntent = Intent(context, TheftGuardService::class.java).apply {
                     this.action = "STOP_ALARM"
                 }
@@ -82,8 +86,8 @@ class SimStateReceiver : BroadcastReceiver() {
         }
         
         // ৩. বুট কমপ্লিট হলে সার্ভিস চালু করা
-        if (action == "android.intent.action.BOOT_COMPLETED" || action == "android.intent.action.LOCKED_BOOT_COMPLETED") {
-            Log.d("TheftGuard", "Boot completed ($action)! Resurrecting service.")
+        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED || action == "android.intent.action.QUICKBOOT_POWERON") {
+            Log.d("TheftGuard", "Boot completed ($action)! Starting service.")
             TheftGuardService.start(context)
         }
     }

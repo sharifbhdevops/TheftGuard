@@ -112,6 +112,9 @@ fun TheftGuardDashboard() {
         mutableStateOf(!powerManager.isIgnoringBatteryOptimizations(context.packageName)) 
     }
     
+    // Auto-start check is manufacturer specific, we can't check it programmatically easily, 
+    // but we can provide a way to open the settings.
+    
     val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     val adminComponent = ComponentName(context, MyAdminReceiver::class.java)
     var isAdminActive by remember { mutableStateOf(dpm.isAdminActive(adminComponent)) }
@@ -176,6 +179,7 @@ fun TheftGuardDashboard() {
 
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestEmail()
+        // .requestIdToken("YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com") // Error 10 ঠিক করতে এখানে আপনার Web Client ID দিন
         .requestScopes(Scope("https://www.googleapis.com/auth/gmail.send"))
         .build()
     val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
@@ -210,7 +214,9 @@ fun TheftGuardDashboard() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 24.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -247,7 +253,9 @@ fun TheftGuardDashboard() {
         
         Text(
             text = "Active Protections",
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
             color = Color.White,
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp
@@ -326,7 +334,9 @@ fun TheftGuardDashboard() {
                             googleSignInLauncher.launch(mGoogleSignInClient.signInIntent)
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isLoggedIn) Rose else Color.White
                     ),
@@ -491,7 +501,12 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(if (isAppActive) 10.dp else 0.dp, RoundedCornerShape(24.dp), ambientColor = glowColor, spotColor = glowColor),
+            .shadow(
+                if (isAppActive) 10.dp else 0.dp,
+                RoundedCornerShape(24.dp),
+                ambientColor = glowColor,
+                spotColor = glowColor
+            ),
         colors = CardDefaults.cardColors(containerColor = Navy800),
         shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, Navy700)
@@ -524,7 +539,9 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
 @Composable
 fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, accentColor: Color, onCheckedChange: (Boolean) -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
         colors = CardDefaults.cardColors(containerColor = Navy800.copy(alpha = 0.7f)),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (isChecked) accentColor.copy(alpha = 0.3f) else Navy700)
@@ -533,7 +550,11 @@ fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, acce
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .background(if (isChecked) accentColor.copy(alpha = 0.15f) else Navy700.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                    .background(
+                        if (isChecked) accentColor.copy(alpha = 0.15f) else Navy700.copy(
+                            alpha = 0.3f
+                        ), RoundedCornerShape(10.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(imageVector = icon, contentDescription = null, tint = if (isChecked) accentColor else Color.Gray, modifier = Modifier.size(24.dp))
@@ -571,7 +592,10 @@ fun PermissionsStatusSection(isAdmin: Boolean, hasCameraLocation: Boolean, hasPh
 @Composable
 fun PermissionRow(label: String, isGranted: Boolean, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(enabled = !isGranted) { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .clickable(enabled = !isGranted) { onClick() },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(

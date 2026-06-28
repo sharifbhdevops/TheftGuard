@@ -31,7 +31,8 @@
         android:label="TheftGuard"
         android:roundIcon="@drawable/ic_launcher_background"
         android:supportsRtl="true"
-        android:theme="@style/Theme.TheftGuard">
+        android:theme="@style/Theme.TheftGuard"
+        android:directBootAware="true">
 
         <activity
             android:name=".MainActivity"
@@ -54,17 +55,18 @@
             <meta-data
                 android:name="android.app.device_admin"
                 android:resource="@xml/device_admin_receiver" />
-            <intent-filter>
+            <intent-filter android:priority="999">
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.ACTION_PASSWORD_FAILED" />
+                <action android:name="android.app.action.ACTION_PASSWORD_SUCCEEDED" />
             </intent-filter>
         </receiver>
 
         <receiver
             android:name=".SimStateReceiver"
             android:exported="true"
-            android:permission="android.permission.READ_PHONE_STATE"
             android:directBootAware="true">
-            <intent-filter android:priority="999">
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.SIM_STATE_CHANGED" />
                 <action android:name="android.telephony.action.SIM_CARD_STATE_CHANGED" />
                 <action android:name="android.telephony.action.SIM_APPLICATION_STATE_CHANGED" />
@@ -76,6 +78,22 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.REBOOT" />
                 <action android:name="android.intent.action.SCREEN_ON" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".RestartReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.BATTERY_LOW" />
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
             </intent-filter>
         </receiver>
 
@@ -100,6 +118,7 @@
             android:enabled="true"
             android:exported="false"
             android:directBootAware="true"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse|location|camera">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
