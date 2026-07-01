@@ -27,36 +27,35 @@ class MyAdminReceiver : DeviceAdminReceiver() {
 
     private fun handlePasswordFailureInternal(context: Context) {
         val currentTime = System.currentTimeMillis()
-        // ৫০০ মিলি-সেকেন্ডের গ্যাপ (যাতে দ্রুত চেষ্টাগুলো মিস না হয়)
         if (currentTime - lastAttemptTime < 500) return
         lastAttemptTime = currentTime
 
-        // Wake up CPU immediately
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TheftGuard::AdminWakeLock")
         wakeLock.acquire(3000L)
 
-        val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            context.createDeviceProtectedStorageContext()
-        } else {
-            context
-        }
+        val directBootContext = context.createDeviceProtectedStorageContext()
         val prefs = directBootContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         
         val currentCount = prefs.getInt("ManualFailedCount", 0)
         val failedCount = currentCount + 1
         prefs.edit(commit = true) { putInt("ManualFailedCount", failedCount) }
 
-        Log.d("TheftGuard", "Wrong Pattern! Count: $failedCount")
+        Log.i("TheftGuard", "Failed Attempt Detected: $failedCount")
 
         val serviceIntent = Intent(context, TheftGuardService::class.java).apply {
             putExtra("attempt_count", failedCount)
-            if (failedCount >= 5) {
+            // ৫, ১০, ১৫... অথবা ১১-এর পর প্রতিবার অ্যালার্ম একশন পাঠানো হবে
+            if (failedCount % 5 == 0 || failedCount >= 11) {
                 action = "START_EMERGENCY_ALARM"
+                Log.w("TheftGuard", "Triggering Emergency Alarm Action for attempt $failedCount")
             }
         }
         
-        startSecurityService(context, serviceIntent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent)
+            else context.startService(serviceIntent)
+        } catch (e: Exception) {}
     }
 
     override fun onPasswordSucceeded(context: Context, intent: Intent, user: android.os.UserHandle) {
@@ -71,40 +70,13 @@ class MyAdminReceiver : DeviceAdminReceiver() {
     }
 
     private fun handlePasswordSuccessInternal(context: Context) {
-        val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            context.createDeviceProtectedStorageContext()
-        } else {
-            context
-        }
-        val prefs = directBootContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
-        
-        // সফল আনলক হলে কাউন্টার ১০০% রিসেট হবে
-        prefs.edit(commit = true) { putInt("ManualFailedCount", 0) }
-        
-        Log.d("TheftGuard", "Correct Password! Counter reset to 0.")
-
-        val stopIntent = Intent(context, TheftGuardService::class.java).apply {
-            action = "STOP_ALARM"
-        }
-        startSecurityService(context, stopIntent)
-    }
-
-    private fun startSecurityService(context: Context, intent: Intent) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        } catch (e: Exception) {
-            Log.e("TheftGuard", "Admin failed to start service: ${e.message}")
-        }
-    }
-
-    override fun onEnabled(context: Context, intent: Intent) {
-        super.onEnabled(context, intent)
-        // অ্যাডমিন এনাবল করার সময় কাউন্টার ০ করে দেওয়া
         val prefs = context.createDeviceProtectedStorageContext().getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         prefs.edit(commit = true) { putInt("ManualFailedCount", 0) }
+
+        val stopIntent = Intent(context, TheftGuardService::class.java).apply { action = "STOP_ALARM" }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(stopIntent)
+            else context.startService(stopIntent)
+        } catch (e: Exception) {}
     }
 }

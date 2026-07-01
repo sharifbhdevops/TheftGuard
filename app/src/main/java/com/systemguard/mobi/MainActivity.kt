@@ -435,28 +435,30 @@ fun TheftGuardDashboard() {
                     )
                     
                     Text("Main Features:", fontWeight = FontWeight.Bold, color = Color.White)
-                    BulletPoint("Intruder Detection: Captures photo and location after 4 failed password attempts.")
-                    BulletPoint("Email Alerts: Sends intruder's photo and location to your email after 5 failed attempts.")
-                    BulletPoint("SIM Protection: Triggers a loud alarm if the SIM card is removed while locked.")
-                    BulletPoint("Security Alarm: Automatically sounds an alarm on incorrect password attempts.")
+                    BulletPoint("Intruder Detection: Captures a silent photo of the intruder after 4 failed password attempts.")
+                    BulletPoint("Emergency Alert: Sends intruder's photo and location link directly to your email after 5 failed attempts.")
+                    BulletPoint("SIM Guard: Triggers a loud alarm immediately if the SIM card is removed while the phone is locked.")
+                    BulletPoint("Security Alarm: Automatically sounds a loud alarm on consecutive incorrect password attempts.")
 
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Surface(
-                        color = Rose.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Rose.copy(alpha = 0.3f))
+                        color = Emerald.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Emerald.copy(alpha = 0.3f))
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Text(
-                                text = "⚠️ NOTE (How to Uninstall):",
+                                text = "🛡️ PRO TIPS FOR FULL PROTECTION:",
                                 fontWeight = FontWeight.Bold,
-                                color = Rose
+                                color = Emerald
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "This app uses 'Device Admin' permission. To uninstall the app, you must first deactivate 'Device Admin' from the settings or within the app permissions. Once deactivated, you can uninstall it like any other regular app.",
+                                text = "1. After every restart, please unlock your phone then open the app once to activate full protection logic.\n2. To uninstall, simply deactivate 'Device Admin' from your phone's security settings first.",
                                 fontSize = 13.sp,
-                                color = Color.LightGray
+                                color = Color.LightGray,
+                                lineHeight = 18.sp
                             )
                         }
                     }
@@ -464,7 +466,7 @@ fun TheftGuardDashboard() {
             },
             confirmButton = {
                 TextButton(onClick = { showInfoDialog = false }) {
-                    Text("Close", color = SkyBlue, fontWeight = FontWeight.Bold)
+                    Text("Got it!", color = SkyBlue, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = Navy800,
