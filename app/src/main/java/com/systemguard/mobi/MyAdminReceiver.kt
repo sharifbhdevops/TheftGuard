@@ -41,14 +41,11 @@ class MyAdminReceiver : DeviceAdminReceiver() {
         val failedCount = currentCount + 1
         prefs.edit(commit = true) { putInt("ManualFailedCount", failedCount) }
 
-        Log.i("TheftGuard", "Failed Attempt Detected: $failedCount")
-
         val serviceIntent = Intent(context, TheftGuardService::class.java).apply {
             putExtra("attempt_count", failedCount)
             // ৫, ১০, ১৫... অথবা ১১-এর পর প্রতিবার অ্যালার্ম একশন পাঠানো হবে
             if (failedCount % 5 == 0 || failedCount >= 11) {
                 action = "START_EMERGENCY_ALARM"
-                Log.w("TheftGuard", "Triggering Emergency Alarm Action for attempt $failedCount")
             }
         }
         

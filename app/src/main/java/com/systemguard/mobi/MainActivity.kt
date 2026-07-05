@@ -1,4 +1,3 @@
-
 package com.systemguard.mobi
 
 import android.Manifest
@@ -10,7 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,7 +54,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Ensure SharedPreferences are in Device Protected Storage for reboot support
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val directBootContext = createDeviceProtectedStorageContext()
             directBootContext.moveSharedPreferencesFrom(this, "AppPrefs")
@@ -63,10 +61,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TheftGuardTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Navy900
-                ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = Navy900) {
                     TheftGuardDashboard()
                 }
             }
@@ -78,11 +73,7 @@ class MainActivity : ComponentActivity() {
 fun TheftGuardDashboard() {
     val context = LocalContext.current
     val sharedPreferences = remember { 
-        val prefContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            context.createDeviceProtectedStorageContext()
-        } else {
-            context
-        }
+        val prefContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) context.createDeviceProtectedStorageContext() else context
         prefContext.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE) 
     }
 
@@ -95,29 +86,18 @@ fun TheftGuardDashboard() {
     var showInfoDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     
-    var pendingFeature by remember { mutableStateOf<String?>(null) }
-
-    var hasCameraPermission by remember { 
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) 
-    }
-    var hasLocationPermission by remember { 
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) 
-    }
-    var hasPhoneStatePermission by remember { 
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) 
-    }
+    var hasCameraPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    var hasLocationPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
+    var hasPhoneStatePermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) }
     
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager }
-    var isBatteryOptimized by remember { 
-        mutableStateOf(!powerManager.isIgnoringBatteryOptimizations(context.packageName)) 
-    }
-    
-    // Auto-start check is manufacturer specific, we can't check it programmatically easily, 
-    // but we can provide a way to open the settings.
+    var isBatteryOptimized by remember { mutableStateOf(!powerManager.isIgnoringBatteryOptimizations(context.packageName)) }
     
     val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     val adminComponent = ComponentName(context, MyAdminReceiver::class.java)
     var isAdminActive by remember { mutableStateOf(dpm.isAdminActive(adminComponent)) }
+
+    var pendingFeatureAction by remember { mutableStateOf<String?>(null) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -125,33 +105,22 @@ fun TheftGuardDashboard() {
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 isAdminActive = dpm.isAdminActive(adminComponent)
                 isBatteryOptimized = !powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                hasPhoneStatePermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val isAppActive = (isCameraEnabled || isAlarmEnabled || isGmailEnabled || isSimEnabled) && isAdminActive
 
     LaunchedEffect(isAppActive) {
-        if (isAppActive) {
-            TheftGuardService.start(context)
-        } else {
-            context.stopService(Intent(context, TheftGuardService::class.java))
-        }
+        if (isAppActive) TheftGuardService.start(context)
     }
 
-    fun checkPermissions(permissions: Array<String>): Boolean {
-        return permissions.all {
-            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         val cameraGranted = permissions[Manifest.permission.CAMERA] ?: hasCameraPermission
         val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasLocationPermission
         val phoneGranted = permissions[Manifest.permission.READ_PHONE_STATE] ?: hasPhoneStatePermission
@@ -160,8 +129,8 @@ fun TheftGuardDashboard() {
         hasLocationPermission = locationGranted
         hasPhoneStatePermission = phoneGranted
 
-        when (pendingFeature) {
-            "CAMERA_LOC" -> {
+        when (pendingFeatureAction) {
+            "CAMERA" -> {
                 if (cameraGranted && locationGranted) {
                     isCameraEnabled = true
                     sharedPreferences.edit { putBoolean("CameraEnabled", true) }
@@ -174,19 +143,17 @@ fun TheftGuardDashboard() {
                 }
             }
         }
-        pendingFeature = null
+        pendingFeatureAction = null
     }
 
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestEmail()
-        // .requestIdToken("YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com") // Error 10 ঠিক করতে এখানে আপনার Web Client ID দিন
-        .requestScopes(Scope("https://www.googleapis.com/auth/gmail.send"))
+        .requestIdToken("47264005282-36f4ic3haki344qpi4mksjgdolaho5k0.apps.googleusercontent.com")
+        .requestScopes(Scope("https://mail.google.com/"))
         .build()
     val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
 
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
+    val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account: GoogleSignInAccount? = task.getResult(ApiException::class.java)
@@ -196,223 +163,113 @@ fun TheftGuardDashboard() {
                 Toast.makeText(context, "Logged in as $it", Toast.LENGTH_SHORT).show()
             }
         } catch (e: ApiException) {
-            Log.e("TheftGuard", "Sign in failed code: ${e.statusCode}")
             Toast.makeText(context, "Sign in failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    val mainBackgroundGradient = Brush.verticalGradient(
-        colors = listOf(Navy900, Navy800, Navy900)
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(mainBackgroundGradient)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+    Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Navy900, Navy800, Navy900))).verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
-                Text(
-                    text = "TheftGuard",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White
-                )
-                Text(
-                    text = "Advanced Security AI",
-                    fontSize = 12.sp,
-                    color = SkyBlue,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = "TheftGuard", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                Text(text = "Advanced Security AI", fontSize = 12.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
             }
-            Box(
-                modifier = Modifier
-                    .size(45.dp)
-                    .clip(CircleShape)
-                    .background(Navy800)
-                    .border(1.dp, Navy700, CircleShape)
-                    .clickable { showInfoDialog = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Info, contentDescription = "Info", tint = SkyBlue)
+            Box(modifier = Modifier.size(45.dp).clip(CircleShape).background(Navy800).border(1.dp, Navy700, CircleShape).clickable { showInfoDialog = true }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Info, contentDescription = null, tint = SkyBlue)
             }
         }
 
         ProtectionStatusCard(isAppActive)
-        
         Spacer(modifier = Modifier.height(24.dp))
         
-        Text(
-            text = "Active Protections",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp
-        )
+        Text(text = "Active Protections", modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
-        Column {
-            ModernFeatureCard("Capture Photo & Location", Icons.Default.CameraAlt, isCameraEnabled, Emerald) { enabled ->
-                if (enabled) {
-                    if (checkPermissions(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))) {
-                        isCameraEnabled = true
-                        sharedPreferences.edit { putBoolean("CameraEnabled", true) }
-                    } else {
-                        pendingFeature = "CAMERA_LOC"
-                        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))
-                    }
+        ModernFeatureCard("Capture Photo & Location", Icons.Default.CameraAlt, isCameraEnabled, Emerald) { enabled ->
+            if (enabled) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    isCameraEnabled = true
+                    sharedPreferences.edit { putBoolean("CameraEnabled", true) }
                 } else {
-                    isCameraEnabled = false
-                    sharedPreferences.edit { putBoolean("CameraEnabled", false) }
+                    pendingFeatureAction = "CAMERA"
+                    permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))
                 }
+            } else {
+                isCameraEnabled = false
+                sharedPreferences.edit { putBoolean("CameraEnabled", false) }
             }
-            ModernFeatureCard("Security Alarm", Icons.Default.NotificationsActive, isAlarmEnabled, Emerald) {
-                isAlarmEnabled = it
-                sharedPreferences.edit { putBoolean("AlarmEnabled", it) }
-            }
-            ModernFeatureCard("SIM Unplug Alarm", Icons.Default.SimCard, isSimEnabled, Emerald) { enabled ->
-                if (enabled) {
-                    if (checkPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE))) {
-                        isSimEnabled = true
-                        sharedPreferences.edit { putBoolean("SimEnabled", true) }
-                    } else {
-                        pendingFeature = "SIM"
-                        permissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
-                    }
+        }
+        ModernFeatureCard("Security Alarm", Icons.Default.NotificationsActive, isAlarmEnabled, Emerald) {
+            isAlarmEnabled = it
+            sharedPreferences.edit { putBoolean("AlarmEnabled", it) }
+        }
+        ModernFeatureCard("SIM Unplug Alarm", Icons.Default.SimCard, isSimEnabled, Emerald) { enabled ->
+            if (enabled) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+                    isSimEnabled = true
+                    sharedPreferences.edit { putBoolean("SimEnabled", true) }
                 } else {
-                    isSimEnabled = false
-                    sharedPreferences.edit { putBoolean("SimEnabled", false) }
+                    pendingFeatureAction = "SIM"
+                    permissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
                 }
+            } else {
+                isSimEnabled = false
+                sharedPreferences.edit { putBoolean("SimEnabled", false) }
             }
-            ModernFeatureCard("Email Alert", Icons.Default.Email, isGmailEnabled, Emerald) { enabled ->
-                if (enabled) {
-                    if (gmailId == "Not Logged In" || gmailId.isBlank()) {
-                        Toast.makeText(context, "Please login with Google first", Toast.LENGTH_SHORT).show()
-                    } else {
-                        isGmailEnabled = true
-                        sharedPreferences.edit { putBoolean("GmailEnabled", true) }
-                    }
-                } else {
-                    isGmailEnabled = false
-                    sharedPreferences.edit { putBoolean("GmailEnabled", false) }
-                }
+        }
+        ModernFeatureCard("Email Alert", Icons.Default.Email, isGmailEnabled, Emerald) { 
+            if (it && (gmailId == "Not Logged In" || gmailId.isBlank())) {
+                Toast.makeText(context, "Please login first", Toast.LENGTH_SHORT).show()
+            } else {
+                isGmailEnabled = it
+                sharedPreferences.edit { putBoolean("GmailEnabled", it) }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
         
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Navy800),
-            shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, Navy700)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Navy800), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Navy700)) {
             Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(text = "Account Configuration", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(modifier = Modifier.height(12.dp))
-                
                 val isLoggedIn = gmailId != "Not Logged In" && gmailId.isNotBlank()
                 Text(text = if (isLoggedIn) "Logged in as: $gmailId" else "No account connected", color = Color.LightGray, fontSize = 14.sp)
-                
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = { 
-                        if (isLoggedIn) {
-                            showLogoutDialog = true
-                        } else {
-                            googleSignInLauncher.launch(mGoogleSignInClient.signInIntent)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isLoggedIn) Rose else Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (isLoggedIn) Icons.AutoMirrored.Filled.Logout else Icons.Default.AccountCircle, 
-                            contentDescription = null, 
-                            tint = if (isLoggedIn) Color.White else Navy900
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isLoggedIn) "Logout from Google" else "Login with Google", 
-                            color = if (isLoggedIn) Color.White else Navy900, 
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                Button(onClick = { if (isLoggedIn) showLogoutDialog = true else googleSignInLauncher.launch(mGoogleSignInClient.signInIntent) }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isLoggedIn) Rose else Color.White), shape = RoundedCornerShape(12.dp)) {
+                    Text(text = if (isLoggedIn) "Logout" else "Login with Google", color = if (isLoggedIn) Color.White else Navy900, fontWeight = FontWeight.Bold)
                 }
             }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
-        PermissionsStatusSection(isAdminActive, hasCameraPermission && hasLocationPermission, hasPhoneStatePermission, !isBatteryOptimized,
-            onAdminRequest = {
-                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                    putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for security.")
+        
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Navy800), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Navy700)) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(text = "Required Permissions", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                PermissionRow("Device Admin", isAdminActive) {
+                    val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for security.")
+                    }
+                    context.startActivity(intent)
                 }
-                context.startActivity(intent)
-            },
-            onCameraLocationRequest = {
-                permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))
-            },
-            onPhoneStateRequest = {
-                permissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
-            },
-            onBatteryRequest = {
-                val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:${context.packageName}")
+                PermissionRow("Camera & Location", hasCameraPermission && hasLocationPermission) {
+                    permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))
                 }
-                context.startActivity(intent)
+                PermissionRow("Phone State", hasPhoneStatePermission) {
+                    permissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
+                }
+                PermissionRow("Battery Optimization", !isBatteryOptimized) {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
+                    context.startActivity(intent)
+                }
             }
-        )
+        }
         Spacer(modifier = Modifier.height(40.dp))
     }
     
     if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Logout Confirmation", color = Color.White) },
-            text = { Text("Are you sure you want to logout?", color = Color.LightGray) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        mGoogleSignInClient.signOut().addOnCompleteListener {
-                            gmailId = "Not Logged In"
-                            isGmailEnabled = false
-                            sharedPreferences.edit { 
-                                putString("UserEmail", "Not Logged In")
-                                putBoolean("GmailEnabled", false)
-                            }
-                            showLogoutDialog = false
-                        }
-                    }
-                ) {
-                    Text("Logout", color = Rose, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel", color = Color.White)
-                }
-            },
-            containerColor = Navy800
-        )
+        AlertDialog(onDismissRequest = { showLogoutDialog = false }, title = { Text("Logout?", color = Color.White) }, confirmButton = { TextButton(onClick = { mGoogleSignInClient.signOut().addOnCompleteListener { gmailId = "Not Logged In"; isGmailEnabled = false; sharedPreferences.edit { putString("UserEmail", "Not Logged In"); putBoolean("GmailEnabled", false) }; showLogoutDialog = false } }) { Text("Logout", color = Rose) } }, dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("Cancel", color = Color.White) } }, containerColor = Navy800)
     }
 
     if (showInfoDialog) {
@@ -480,7 +337,7 @@ fun TheftGuardDashboard() {
 fun BulletPoint(text: String) {
     Row(modifier = Modifier.padding(vertical = 4.dp)) {
         Text("• ", color = SkyBlue, fontWeight = FontWeight.Bold)
-        Text(text = text, fontSize = 14.sp, color = Color.LightGray)
+        Text(text = text, fontSize = 13.sp, color = Color.White) // কন্টেন্ট কালার একদম সাদা করা হলো
     }
 }
 
@@ -488,50 +345,18 @@ fun BulletPoint(text: String) {
 fun ProtectionStatusCard(isAppActive: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
+        initialValue = 0.4f, targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Reverse), label = "alpha"
     )
-
     val glowColor = if (isAppActive) Emerald else Rose
-    val statusText = if (isAppActive) "TheftGuard Active" else "TheftGuard Inactive"
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                if (isAppActive) 10.dp else 0.dp,
-                RoundedCornerShape(24.dp),
-                ambientColor = glowColor,
-                spotColor = glowColor
-            ),
-        colors = CardDefaults.cardColors(containerColor = Navy800),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Navy700)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().shadow(if (isAppActive) 10.dp else 0.dp, RoundedCornerShape(24.dp), ambientColor = glowColor, spotColor = glowColor), colors = CardDefaults.cardColors(containerColor = Navy800), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Navy700)) {
         Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .background(glowColor.copy(alpha = 0.1f))
-                    .border(2.dp, glowColor.copy(alpha = alpha), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isAppActive) Icons.Default.GppGood else Icons.Default.GppBad,
-                    contentDescription = null,
-                    tint = glowColor,
-                    modifier = Modifier.size(32.dp)
-                )
+            Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(glowColor.copy(alpha = 0.1f)).border(2.dp, glowColor.copy(alpha = alpha), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(imageVector = if (isAppActive) Icons.Default.GppGood else Icons.Default.GppBad, contentDescription = null, tint = glowColor, modifier = Modifier.size(32.dp))
             }
             Spacer(modifier = Modifier.width(20.dp))
             Column {
-                Text(text = statusText, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(text = if (isAppActive) "TheftGuard Active" else "TheftGuard Inactive", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(text = if (isAppActive) "Device Protected" else "Action Required", color = Color.Gray, fontSize = 13.sp)
             }
         }
@@ -540,72 +365,22 @@ fun ProtectionStatusCard(isAppActive: Boolean) {
 
 @Composable
 fun ModernFeatureCard(title: String, icon: ImageVector, isChecked: Boolean, accentColor: Color, onCheckedChange: (Boolean) -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = Navy800.copy(alpha = 0.7f)),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (isChecked) accentColor.copy(alpha = 0.3f) else Navy700)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), colors = CardDefaults.cardColors(containerColor = Navy800.copy(alpha = 0.7f)), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, if (isChecked) accentColor.copy(alpha = 0.3f) else Navy700)) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(
-                        if (isChecked) accentColor.copy(alpha = 0.15f) else Navy700.copy(
-                            alpha = 0.3f
-                        ), RoundedCornerShape(10.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(42.dp).background(if (isChecked) accentColor.copy(alpha = 0.15f) else Navy700.copy(alpha = 0.3f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                 Icon(imageVector = icon, contentDescription = null, tint = if (isChecked) accentColor else Color.Gray, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.weight(1f))
-            Switch(
-                checked = isChecked, 
-                onCheckedChange = onCheckedChange, 
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor)
-            )
-        }
-    }
-}
-
-@Composable
-fun PermissionsStatusSection(isAdmin: Boolean, hasCameraLocation: Boolean, hasPhone: Boolean, isBatteryOptimized: Boolean, onAdminRequest: () -> Unit, onCameraLocationRequest: () -> Unit, onPhoneStateRequest: () -> Unit, onBatteryRequest: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Navy800),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Navy700)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(text = "Permissions", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.height(12.dp))
-            PermissionRow("Device Admin", isAdmin, onAdminRequest)
-            PermissionRow("Camera & Location", hasCameraLocation, onCameraLocationRequest)
-            PermissionRow("Phone State", hasPhone, onPhoneStateRequest)
-            PermissionRow("Battery Optimization", isBatteryOptimized, onBatteryRequest)
+            Switch(checked = isChecked, onCheckedChange = onCheckedChange, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accentColor))
         }
     }
 }
 
 @Composable
 fun PermissionRow(label: String, isGranted: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-            .clickable(enabled = !isGranted) { onClick() },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Error,
-            contentDescription = null,
-            tint = if (isGranted) SuccessGreen else ErrorRed,
-            modifier = Modifier.size(20.dp)
-        )
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(enabled = !isGranted) { onClick() }, verticalAlignment = Alignment.CenterVertically) {
+        Icon(imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Error, contentDescription = null, tint = if (isGranted) SuccessGreen else ErrorRed, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(12.dp))
         Text(text = label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
         if (!isGranted) Text(text = "REQUIRED", color = SkyBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)

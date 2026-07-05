@@ -14,7 +14,6 @@ import androidx.core.content.edit
 class RestartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        Log.i("TheftGuard", "RestartReceiver triggered: $action")
         
         val directBootContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             context.createDeviceProtectedStorageContext()
@@ -26,7 +25,6 @@ class RestartReceiver : BroadcastReceiver() {
         // আনলক হলে কাউন্টার রিসেট
         if (action == Intent.ACTION_USER_PRESENT || action == "android.intent.action.USER_UNLOCKED") {
             prefs.edit(commit = true) { putInt("ManualFailedCount", 0) }
-            Log.d("TheftGuard", "Counter reset on unlock.")
         }
 
         // সুরক্ষা সচল থাকলে সার্ভিস স্টার্ট করা

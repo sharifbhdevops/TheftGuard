@@ -1,13 +1,7 @@
 package com.systemguard.mobi
 
 import android.Manifest
-import android.app.AlarmManager
-import android.app.KeyguardManager
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
+import android.app.*
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -26,9 +20,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.LifecycleService
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.Tasks
@@ -44,10 +36,7 @@ import javax.mail.internet.MimeBodyPart
 import javax.mail.internet.MimeMessage
 import javax.mail.internet.MimeMultipart
 
-class TheftGuardService : Service(), LifecycleOwner {
-
-    private val lifecycleRegistry = LifecycleRegistry(this)
-    override val lifecycle: Lifecycle get() = lifecycleRegistry
+class TheftGuardService : LifecycleService() {
 
     private val emailExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -60,12 +49,16 @@ class TheftGuardService : Service(), LifecycleOwner {
         private var wakeLock: PowerManager.WakeLock? = null
         
         fun start(context: Context) {
-            Log.i("TheftGuard", "Static start() called")
             val intent = Intent(context, TheftGuardService::class.java)
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-                else context.startService(intent)
-            } catch (e: Exception) { Log.e("TheftGuard", "Start failed: ${e.message}") }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("TheftGuard", "Service start failed: ${e.message}")
+            }
         }
     }
 
@@ -81,7 +74,6 @@ class TheftGuardService : Service(), LifecycleOwner {
             if (isEmergencyAlarmActive) {
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
                 if (!km.isKeyguardLocked) {
-                    Log.i("TheftGuard", "Watchdog: Unlock detected! Cleaning up.")
                     resetAndStopEverything()
                 } else {
                     mainHandler.postDelayed(this, 1000)
@@ -90,12 +82,8 @@ class TheftGuardService : Service(), LifecycleOwner {
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
     override fun onCreate() {
         super.onCreate()
-        Log.i("TheftGuard", "Service onCreate")
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         acquireWakeLock()
         registerSimReceiver()
         startSubscriptionListener()
@@ -106,7 +94,6 @@ class TheftGuardService : Service(), LifecycleOwner {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TheftGuard::WakeLock")
         if (wakeLock?.isHeld == false) {
             wakeLock?.acquire(10 * 60 * 1000L)
-            Log.d("TheftGuard", "WakeLock acquired")
         }
     }
 
@@ -115,7 +102,6 @@ class TheftGuardService : Service(), LifecycleOwner {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             subscriptionManager?.addOnSubscriptionsChangedListener(object : SubscriptionManager.OnSubscriptionsChangedListener() {
                 override fun onSubscriptionsChanged() { 
-                    Log.d("TheftGuard", "Subscriptions changed")
                     checkSimStatus() 
                 }
             })
@@ -127,23 +113,14 @@ class TheftGuardService : Service(), LifecycleOwner {
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             val activeList = subscriptionManager?.activeSubscriptionInfoList
-            val isSimNowAbsent = activeList.isNullOrEmpty()
-            val alreadyTriggered = sharedPreferences.getBoolean("SimAbsentTriggered", false)
-
-            if (isSimNowAbsent) {
-                if (km.isKeyguardLocked && !alreadyTriggered) {
-                    Log.w("TheftGuard", "SIM ABSENT DETECTED!")
-                    sharedPreferences.edit(commit = true) { putBoolean("SimAbsentTriggered", true) }
-                    playLoudAlarm()
-                    isEmergencyAlarmActive = true
-                    mainHandler.post(unlockWatchdog)
-                }
-            } else {
-                if (alreadyTriggered || isEmergencyAlarmActive) {
-                    Log.i("TheftGuard", "SIM detected. Resetting.")
-                    sharedPreferences.edit(commit = true) { putBoolean("SimAbsentTriggered", false) }
-                    resetAndStopEverything()
-                }
+            if (activeList.isNullOrEmpty() && km.isKeyguardLocked && !sharedPreferences.getBoolean("SimAbsentTriggered", false)) {
+                sharedPreferences.edit(commit = true) { putBoolean("SimAbsentTriggered", true) }
+                playLoudAlarm()
+                isEmergencyAlarmActive = true
+                mainHandler.post(unlockWatchdog)
+            } else if (!activeList.isNullOrEmpty() && (sharedPreferences.getBoolean("SimAbsentTriggered", false) || isEmergencyAlarmActive)) {
+                sharedPreferences.edit(commit = true) { putBoolean("SimAbsentTriggered", false) }
+                resetAndStopEverything()
             }
         }
     }
@@ -159,55 +136,50 @@ class TheftGuardService : Service(), LifecycleOwner {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(simReceiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(simReceiver, filter)
-            Log.d("TheftGuard", "SimReceiver registered")
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        super.onStartCommand(intent, flags, startId)
         val action = intent?.action
         val attempts = intent?.getIntExtra("attempt_count", 0) ?: 0
-        Log.i("TheftGuard", "onStartCommand: action=$action, attempts=$attempts")
         
-        startForeground(1, createNotification())
+        val notification = createNotification()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val fgsType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or 
+                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                startForeground(1, notification, fgsType)
+            } else {
+                startForeground(1, notification)
+            }
+        } catch (e: Exception) { }
 
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        
         if (action == "STOP_ALARM") {
-            if (!km.isKeyguardLocked) {
-                Log.i("TheftGuard", "STOP_ALARM action - Unlocked")
-                sharedPreferences.edit(commit = true) { putInt("ManualFailedCount", 0) }
-                stopAlarm()
-            }
+            if (!km.isKeyguardLocked) resetAndStopEverything()
         }
         
-        if (action == "STOP_ALARM_BY_SIM") {
-            Log.i("TheftGuard", "STOP_ALARM_BY_SIM action")
-            stopAlarm()
-        }
+        if (action == "STOP_ALARM_BY_SIM") stopAlarm()
 
-        if (sharedPreferences.getBoolean("EmailPending", false) && isNetworkAvailable()) {
-            Log.i("TheftGuard", "Retrying pending email on start")
-            retryPendingEmail()
-        }
-
+        // শুধুমাত্র ভুলের সংখ্যা ৪ বা তার বেশি হলে প্রসেস শুরু হবে
         if (attempts >= 4) {
-            Log.d("TheftGuard", "Processing attempts: $attempts")
             captureAndProcess(attempts)
         }
         
-        if (action == "START_EMERGENCY_ALARM") {
-            Log.w("TheftGuard", "START_EMERGENCY_ALARM action")
-            playEmergencyAlarm()
-        }
+        if (action == "START_EMERGENCY_ALARM") playEmergencyAlarm()
 
         scheduleWatchdog()
         return START_STICKY
     }
 
     private fun resetAndStopEverything() {
-        Log.i("TheftGuard", "resetAndStopEverything() called")
-        sharedPreferences.edit(commit = true) { putInt("ManualFailedCount", 0) }
+        sharedPreferences.edit(commit = true) { 
+            putInt("ManualFailedCount", 0)
+            putBoolean("EmailPending", false)
+            putString("LastPhotoPendingUri", null)
+        }
         stopAlarm()
     }
 
@@ -217,57 +189,35 @@ class TheftGuardService : Service(), LifecycleOwner {
         return (netInfo != null && netInfo.isConnected)
     }
 
-    private fun retryPendingEmail() {
-        val email = sharedPreferences.getString("UserEmail", "")
-        val pathPrev = sharedPreferences.getString("LastPhotoPendingUri", "")
-        val pathCurrent = sharedPreferences.getString("LastPhotoActionUri", "")
-        val loc = sharedPreferences.getString("LastLocation", "Not available")
-        val currentAttempts = sharedPreferences.getInt("ManualFailedCount", 0)
-        
-        if (!email.isNullOrEmpty() && !pathCurrent.isNullOrEmpty()) {
-            Log.i("TheftGuard", "Executing pending email retry for attempt $currentAttempts")
-            emailExecutor.execute { 
-                sendEmailWithUris(email, pathPrev, pathCurrent, loc ?: "Not available", currentAttempts) 
-            }
-        }
-    }
-
     private fun captureAndProcess(attempts: Int) {
-        Log.i("TheftGuard", "captureAndProcess: Processing attempt $attempts")
-        if (sharedPreferences.getBoolean("AlarmEnabled", false) && (attempts % 5 == 0 || attempts >= 11)) {
-            Log.w("TheftGuard", "Alarm enabled, playing for attempt $attempts")
+        if (sharedPreferences.getBoolean("AlarmEnabled", false) && (attempts == 5 || attempts == 10 || attempts >= 11)) {
             playLoudAlarm()
         }
+        
         if (sharedPreferences.getBoolean("CameraEnabled", false)) {
-            // ৪, ৯... অথবা ৫, ১০... অথবা ১১-এর পর প্রতিবার
-            if (attempts % 5 == 4 || attempts % 5 == 0 || attempts >= 11) {
-                Log.d("TheftGuard", "Camera enabled, taking photo for attempt $attempts")
-                takePhoto(attempts)
+            // ৪, ৫, ৯, ১০ এবং ১১+ ভুলের সময় ছবি তোলা হবে
+            if (attempts == 4 || attempts == 5 || attempts == 9 || attempts == 10 || attempts >= 11) {
+                mainHandler.postDelayed({ takePhoto(attempts) }, 500)
             }
         }
     }
 
     private fun takePhoto(attempts: Int) {
         val currentTime = System.currentTimeMillis()
-        if (isCapturing.get() && (currentTime - lastCaptureTime > 7000)) {
-            Log.w("TheftGuard", "Capture stuck? Resetting flag.")
-            isCapturing.set(false)
-        }
+        if (isCapturing.get() && (currentTime - lastCaptureTime > 7000)) isCapturing.set(false)
         if (isCapturing.get()) {
-            Log.d("TheftGuard", "Already capturing, skipping duplicate call for $attempts")
+            mainHandler.postDelayed({ takePhoto(attempts) }, 2000)
             return
         }
         
         isCapturing.set(true)
         lastCaptureTime = currentTime
-        Log.i("TheftGuard", "Starting camera capture for attempt $attempts")
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
                 val imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
-                
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, imageCapture)
 
@@ -277,30 +227,17 @@ class TheftGuardService : Service(), LifecycleOwner {
 
                 imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        Log.i("TheftGuard", "Photo saved to file for attempt $attempts")
                         isCapturing.set(false)
-                        mainHandler.post { 
-                            try { cameraProvider.unbindAll() } catch(e: Exception) {} 
-                        }
+                        mainHandler.post { try { cameraProvider.unbindAll() } catch(e: Exception) {} }
                         saveToGallery(photoFile, attempts)
                     }
-                    override fun onError(exc: ImageCaptureException) { 
-                        isCapturing.set(false)
-                        mainHandler.post { 
-                            try { cameraProvider.unbindAll() } catch(e: Exception) {} 
-                        }
-                        Log.e("TheftGuard", "Camera picture error: ${exc.message}")
-                    }
+                    override fun onError(exc: ImageCaptureException) { isCapturing.set(false) }
                 })
-            } catch (e: Exception) { 
-                Log.e("TheftGuard", "Camera binding crash: ${e.message}")
-                isCapturing.set(false)
-            }
+            } catch (e: Exception) { isCapturing.set(false) }
         }, ContextCompat.getMainExecutor(this))
     }
 
     private fun saveToGallery(sourceFile: File, attempts: Int) {
-        Log.d("TheftGuard", "Saving photo to MediaStore for attempt $attempts")
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "Attempt_$attempts.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -310,63 +247,67 @@ class TheftGuardService : Service(), LifecycleOwner {
         uri?.let { destUri ->
             try {
                 contentResolver.openOutputStream(destUri)?.use { out -> sourceFile.inputStream().use { it.copyTo(out) } }
-                Log.i("TheftGuard", "Photo successfully visible in gallery: $destUri")
                 handleFinalAlerts(destUri, attempts)
-            } catch (e: Exception) { Log.e("TheftGuard", "Gallery save failed: ${e.message}") }
+            } catch (e: Exception) { }
         }
     }
 
     private fun handleFinalAlerts(uri: Uri, attempts: Int) {
-        if (attempts % 5 == 4 && attempts < 11) {
+        // ৪ এবং ৯ নম্বর চেষ্টায় শুধু ছবি সেভ হবে (Pending হিসেবে)
+        if (attempts == 4 || attempts == 9) {
             sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", uri.toString()) }
-            Log.i("TheftGuard", "Buffer photo stored for attempt $attempts")
-        } else if (attempts % 5 == 0 || attempts >= 11) {
-            Log.i("TheftGuard", "Alert trigger reached at attempt $attempts")
+            return 
+        }
+        
+        // ৫, ১০ এবং ১১+ চেষ্টায় ইমেইল যাবে
+        if (attempts == 5 || attempts == 10 || attempts >= 11) {
             sharedPreferences.edit(commit = true) { putString("LastPhotoActionUri", uri.toString()) }
             val email = sharedPreferences.getString("UserEmail", "")
             if (sharedPreferences.getBoolean("GmailEnabled", false) && !email.isNullOrEmpty()) {
                 emailExecutor.execute {
                     try {
-                        Log.i("TheftGuard", "Starting location fetch for alert at attempt $attempts...")
                         val loc = fetchLocationBlocking()
                         sharedPreferences.edit(commit = true) { putString("LastLocation", loc) }
                         
-                        val pendingPhotoUri = sharedPreferences.getString("LastPhotoPendingUri", null)
+                        // ৫ এবং ১০-এর জন্য আগের ছবি (৪ বা ৯) নিবে
+                        val pendingPhotoUri = if (attempts == 5 || attempts == 10) {
+                            sharedPreferences.getString("LastPhotoPendingUri", null)
+                        } else null
                         
                         if (isNetworkAvailable()) {
                             sendEmailWithUris(email, pendingPhotoUri, uri.toString(), loc, attempts)
                         } else {
-                            Log.w("TheftGuard", "Network offline for attempt $attempts. Marking as pending.")
-                            sharedPreferences.edit(commit = true) { putBoolean("EmailPending", true) }
+                            sharedPreferences.edit(commit = true) { 
+                                putBoolean("EmailPending", true) 
+                                putInt("PendingEmailAttempt", attempts)
+                            }
                         }
-
-                        // ১১ নম্বর চেষ্টার পর প্রতিবারই ফটো রোটেট করা (যাতে পরের মেইলে কারেন্টটি প্রিভিয়াস হিসেবে থাকে)
-                        if (attempts >= 10) {
-                            sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", uri.toString()) }
+                        
+                        // মেইল পাঠানোর পর বাফার ক্লিনআপ
+                        if (attempts == 5 || attempts == 10) {
+                            sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", null) }
                         }
-                    } catch (e: Exception) {
-                        Log.e("TheftGuard", "handleFinalAlerts thread crash: ${e.message}")
-                    }
+                    } catch (e: Exception) { }
                 }
-            } else {
-                Log.w("TheftGuard", "Email disabled or email address empty for attempt $attempts.")
             }
         }
     }
 
     private fun sendEmailWithUris(userEmail: String, uri1: String?, uri2: String, location: String, attempts: Int) {
-        Log.i("TheftGuard", "sendEmailWithUris: Preparing to send mail for attempt $attempts")
         try {
-            val scope = "oauth2:https://www.googleapis.com/auth/gmail.send"
+            val scope = "oauth2:https://mail.google.com/"
             val accessToken = com.google.android.gms.auth.GoogleAuthUtil.getToken(this, userEmail, scope)
-            Log.d("TheftGuard", "OAuth Token obtained")
 
             val props = Properties().apply {
                 put("mail.smtp.host", "smtp.gmail.com")
                 put("mail.smtp.port", "465")
-                put("mail.smtp.ssl.enable", "true")
                 put("mail.smtp.auth", "true")
+                put("mail.smtp.ssl.enable", "true")
                 put("mail.smtp.auth.mechanisms", "XOAUTH2")
+                put("mail.smtp.socketFactory.port", "465")
+                put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                put("mail.smtp.connectiontimeout", "30000")
+                put("mail.smtp.timeout", "30000")
             }
             val session = Session.getInstance(props)
             val mm = MimeMessage(session).apply {
@@ -380,17 +321,16 @@ class TheftGuardService : Service(), LifecycleOwner {
             textPart.setText("Intruder Location:\n$location\n\nLatest photos attached.")
             multipart.addBodyPart(textPart)
             
+            // ৫ বা ১০ নম্বর ভুলের সময় আগের ছবি অ্যাটাচ করা হবে
             uri1?.let { 
                 try { 
-                    Log.d("TheftGuard", "Attaching prev photo: $it")
-                    addUriAttachment(multipart, Uri.parse(it), "Attempt_${attempts - 1}.jpg") 
-                } catch (e: Exception) { Log.e("TheftGuard", "Fail attach prev: ${e.message}") } 
+                    val prevNum = if (attempts == 5) 4 else 9
+                    addUriAttachment(multipart, Uri.parse(it), "Attempt_$prevNum.jpg") 
+                } catch (e: Exception) { } 
             }
             
-            try {
-                Log.d("TheftGuard", "Attaching current photo: $uri2")
-                addUriAttachment(multipart, Uri.parse(uri2), "Attempt_$attempts.jpg")
-            } catch (e: Exception) { Log.e("TheftGuard", "Fail attach current: ${e.message}") }
+            // বর্তমান ছবি অ্যাটাচ করা
+            try { addUriAttachment(multipart, Uri.parse(uri2), "Attempt_$attempts.jpg") } catch (e: Exception) { }
             
             mm.setContent(multipart)
             val transport = session.getTransport("smtp")
@@ -399,10 +339,11 @@ class TheftGuardService : Service(), LifecycleOwner {
             transport.close()
             
             sharedPreferences.edit(commit = true) { putBoolean("EmailPending", false) }
-            Log.i("TheftGuard", "EMAIL SENT SUCCESS for attempt $attempts!")
         } catch (e: Exception) { 
-            Log.e("TheftGuard", "EMAIL FAILED for attempt $attempts: ${e.message}") 
-            sharedPreferences.edit(commit = true) { putBoolean("EmailPending", true) }
+            sharedPreferences.edit(commit = true) { 
+                putBoolean("EmailPending", true)
+                putInt("PendingEmailAttempt", attempts) 
+            }
         }
     }
 
@@ -419,7 +360,6 @@ class TheftGuardService : Service(), LifecycleOwner {
             bodyPart.dataHandler = javax.activation.DataHandler(dataSource)
             bodyPart.fileName = fileName
             multipart.addBodyPart(bodyPart)
-            Log.d("TheftGuard", "Attachment added: $fileName")
         }
     }
 
@@ -427,20 +367,11 @@ class TheftGuardService : Service(), LifecycleOwner {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return "No Permission"
         val client = LocationServices.getFusedLocationProviderClient(this)
         return try {
-            Log.d("TheftGuard", "Waiting for GPS...")
             val task = client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             val loc = Tasks.await(task, 12, TimeUnit.SECONDS)
-            if (loc != null) {
-                Log.i("TheftGuard", "GPS Location fixed")
-                "Lat: ${loc.latitude}, Lng: ${loc.longitude}\nMaps: https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}"
-            } else {
-                Log.w("TheftGuard", "GPS Timeout")
-                "Location Timeout"
-            }
-        } catch (e: Exception) { 
-            Log.e("TheftGuard", "Location Error: ${e.message}")
-            "Location Error" 
-        }
+            if (loc != null) "Lat: ${loc.latitude}, Lng: ${loc.longitude}\nMaps: https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}"
+            else "Location Timeout"
+        } catch (e: Exception) { "Location Error" }
     }
 
     private fun scheduleWatchdog() {
@@ -454,17 +385,7 @@ class TheftGuardService : Service(), LifecycleOwner {
             } else {
                 alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent)
             }
-        } catch (e: Exception) { 
-            alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent) 
-        }
-    }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        val restartIntent = Intent(applicationContext, RestartReceiver::class.java).apply { action = "RESTART_THEFTGUARD" }
-        val pendingIntent = PendingIntent.getBroadcast(applicationContext, 1, restartIntent, PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
-        val alarmService = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmService.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pendingIntent)
-        super.onTaskRemoved(rootIntent)
+        } catch (e: Exception) { alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent) }
     }
 
     private fun createNotification(): Notification {
@@ -486,9 +407,7 @@ class TheftGuardService : Service(), LifecycleOwner {
                 setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ALARM).build())
                 isLooping = true; prepare(); start() 
             }
-        } catch (e: Exception) {
-            Log.e("TheftGuard", "Alarm play failed: ${e.message}")
-        }
+        } catch (e: Exception) { }
     }
 
     private fun playEmergencyAlarm() {
@@ -496,7 +415,6 @@ class TheftGuardService : Service(), LifecycleOwner {
             isEmergencyAlarmActive = true
             mainHandler.post(unlockWatchdog)
             playLoudAlarm()
-            Log.w("TheftGuard", "Emergency Alarm Triggered")
         }
     }
 
@@ -505,13 +423,10 @@ class TheftGuardService : Service(), LifecycleOwner {
         mainHandler.removeCallbacks(unlockWatchdog)
         mediaPlayer?.let { try { it.stop(); it.release() } catch (e: Exception) {} }
         mediaPlayer = null 
-        Log.i("TheftGuard", "Alarm stopped")
     }
 
     override fun onDestroy() { 
-        Log.i("TheftGuard", "Service onDestroy")
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        super.onDestroy()
         emailExecutor.shutdown()
-        super.onDestroy() 
     }
 }

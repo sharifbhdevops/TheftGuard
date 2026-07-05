@@ -7,8 +7,6 @@ import java.util.concurrent.TimeUnit
 
 class TheftGuardWorker(context: Context, workerParams: WorkerParameters) : Worker(context, workerParams) {
     override fun doWork(): Result {
-        Log.d("TheftGuard", "WorkManager waking up app...")
-        
         // ১. সার্ভিস স্টার্ট করা
         TheftGuardService.start(applicationContext)
         

@@ -16,16 +16,16 @@ android {
         minSdk = 30
         targetSdk = 36
         versionCode = 1
-        versionName = "V1.2"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true // কোড সুরক্ষিত করবে
+            isShrinkResources = true // অপ্রয়োজনীয় ফাইল বাদ দিবে
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
