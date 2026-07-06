@@ -15,16 +15,16 @@ android {
         applicationId = "com.systemguard.mobi"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true // কোড সুরক্ষিত করবে
-            isShrinkResources = true // অপ্রয়োজনীয় ফাইল বাদ দিবে
+            isMinifyEnabled = true
+            isShrinkResources = true // সাইজ কমাতে এটি জরুরি
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

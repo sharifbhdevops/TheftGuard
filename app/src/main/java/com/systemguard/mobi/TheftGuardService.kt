@@ -56,9 +56,7 @@ class TheftGuardService : LifecycleService() {
                 } else {
                     context.startService(intent)
                 }
-            } catch (e: Exception) {
-                Log.e("TheftGuard", "Service start failed: ${e.message}")
-            }
+            } catch (e: Exception) { }
         }
     }
 
@@ -93,7 +91,7 @@ class TheftGuardService : LifecycleService() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TheftGuard::WakeLock")
         if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(10 * 60 * 1000L)
+            wakeLock?.acquire(5 * 60 * 1000L) // Reduced to 5 mins
         }
     }
 
@@ -130,8 +128,7 @@ class TheftGuardService : LifecycleService() {
             simReceiver = SimStateReceiver()
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_USER_PRESENT)
-                addAction(Intent.ACTION_SCREEN_ON)
-                addAction(Intent.ACTION_SCREEN_OFF)
+                // Removed SCREEN_ON/OFF for battery saving
                 priority = 1000
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(simReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -147,9 +144,11 @@ class TheftGuardService : LifecycleService() {
         val notification = createNotification()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                val fgsType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or 
-                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
-                             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                var fgsType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                if (attempts >= 4) {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
                 startForeground(1, notification, fgsType)
             } else {
                 startForeground(1, notification)
@@ -163,11 +162,7 @@ class TheftGuardService : LifecycleService() {
         
         if (action == "STOP_ALARM_BY_SIM") stopAlarm()
 
-        // শুধুমাত্র ভুলের সংখ্যা ৪ বা তার বেশি হলে প্রসেস শুরু হবে
-        if (attempts >= 4) {
-            captureAndProcess(attempts)
-        }
-        
+        if (attempts >= 4) captureAndProcess(attempts)
         if (action == "START_EMERGENCY_ALARM") playEmergencyAlarm()
 
         scheduleWatchdog()
@@ -195,7 +190,6 @@ class TheftGuardService : LifecycleService() {
         }
         
         if (sharedPreferences.getBoolean("CameraEnabled", false)) {
-            // ৪, ৫, ৯, ১০ এবং ১১+ ভুলের সময় ছবি তোলা হবে
             if (attempts == 4 || attempts == 5 || attempts == 9 || attempts == 10 || attempts >= 11) {
                 mainHandler.postDelayed({ takePhoto(attempts) }, 500)
             }
@@ -253,13 +247,11 @@ class TheftGuardService : LifecycleService() {
     }
 
     private fun handleFinalAlerts(uri: Uri, attempts: Int) {
-        // ৪ এবং ৯ নম্বর চেষ্টায় শুধু ছবি সেভ হবে (Pending হিসেবে)
         if (attempts == 4 || attempts == 9) {
             sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", uri.toString()) }
             return 
         }
         
-        // ৫, ১০ এবং ১১+ চেষ্টায় ইমেইল যাবে
         if (attempts == 5 || attempts == 10 || attempts >= 11) {
             sharedPreferences.edit(commit = true) { putString("LastPhotoActionUri", uri.toString()) }
             val email = sharedPreferences.getString("UserEmail", "")
@@ -269,7 +261,6 @@ class TheftGuardService : LifecycleService() {
                         val loc = fetchLocationBlocking()
                         sharedPreferences.edit(commit = true) { putString("LastLocation", loc) }
                         
-                        // ৫ এবং ১০-এর জন্য আগের ছবি (৪ বা ৯) নিবে
                         val pendingPhotoUri = if (attempts == 5 || attempts == 10) {
                             sharedPreferences.getString("LastPhotoPendingUri", null)
                         } else null
@@ -283,7 +274,6 @@ class TheftGuardService : LifecycleService() {
                             }
                         }
                         
-                        // মেইল পাঠানোর পর বাফার ক্লিনআপ
                         if (attempts == 5 || attempts == 10) {
                             sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", null) }
                         }
@@ -309,41 +299,22 @@ class TheftGuardService : LifecycleService() {
                 put("mail.smtp.connectiontimeout", "30000")
                 put("mail.smtp.timeout", "30000")
             }
-            val session = Session.getInstance(props)
-            val mm = MimeMessage(session).apply {
+            val mm = MimeMessage(Session.getInstance(props)).apply {
                 setFrom(InternetAddress(userEmail))
                 addRecipient(javax.mail.Message.RecipientType.TO, InternetAddress(userEmail))
                 subject = "TheftGuard Security Alert! Attempt $attempts"
             }
-            
             val multipart = MimeMultipart()
-            val textPart = MimeBodyPart()
-            textPart.setText("Intruder Location:\n$location\n\nLatest photos attached.")
-            multipart.addBodyPart(textPart)
-            
-            // ৫ বা ১০ নম্বর ভুলের সময় আগের ছবি অ্যাটাচ করা হবে
-            uri1?.let { 
-                try { 
-                    val prevNum = if (attempts == 5) 4 else 9
-                    addUriAttachment(multipart, Uri.parse(it), "Attempt_$prevNum.jpg") 
-                } catch (e: Exception) { } 
-            }
-            
-            // বর্তমান ছবি অ্যাটাচ করা
+            multipart.addBodyPart(MimeBodyPart().apply { setText("Intruder Location:\n$location\n\nLatest photos attached.") })
+            uri1?.let { try { addUriAttachment(multipart, Uri.parse(it), "Attempt_${if (attempts == 5) 4 else 9}.jpg") } catch (e: Exception) { } }
             try { addUriAttachment(multipart, Uri.parse(uri2), "Attempt_$attempts.jpg") } catch (e: Exception) { }
-            
             mm.setContent(multipart)
-            val transport = session.getTransport("smtp")
+            val transport = Session.getInstance(props).getTransport("smtp")
             transport.connect("smtp.gmail.com", userEmail, accessToken)
-            transport.sendMessage(mm, mm.allRecipients)
-            transport.close()
-            
+            transport.sendMessage(mm, mm.allRecipients); transport.close()
             sharedPreferences.edit(commit = true) { putBoolean("EmailPending", false) }
         } catch (e: Exception) { 
-            sharedPreferences.edit(commit = true) { 
-                putBoolean("EmailPending", true)
-                putInt("PendingEmailAttempt", attempts) 
-            }
+            sharedPreferences.edit(commit = true) { putBoolean("EmailPending", true); putInt("PendingEmailAttempt", attempts) }
         }
     }
 
@@ -356,18 +327,14 @@ class TheftGuardService : LifecycleService() {
                 override fun getContentType() = "image/jpeg"
                 override fun getName() = fileName
             }
-            val bodyPart = MimeBodyPart()
-            bodyPart.dataHandler = javax.activation.DataHandler(dataSource)
-            bodyPart.fileName = fileName
-            multipart.addBodyPart(bodyPart)
+            multipart.addBodyPart(MimeBodyPart().apply { dataHandler = javax.activation.DataHandler(dataSource); this.fileName = fileName })
         }
     }
 
     private fun fetchLocationBlocking(): String {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return "No Permission"
-        val client = LocationServices.getFusedLocationProviderClient(this)
         return try {
-            val task = client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            val task = LocationServices.getFusedLocationProviderClient(this).getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             val loc = Tasks.await(task, 12, TimeUnit.SECONDS)
             if (loc != null) "Lat: ${loc.latitude}, Lng: ${loc.longitude}\nMaps: https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}"
             else "Location Timeout"
@@ -376,16 +343,20 @@ class TheftGuardService : LifecycleService() {
 
     private fun scheduleWatchdog() {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, RestartReceiver::class.java).apply { action = "HEARTBEAT_RESTART" }
-        val pendingIntent = PendingIntent.getBroadcast(this, 99, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val triggerTime = SystemClock.elapsedRealtime() + 60000 
+        val intent = PendingIntent.getBroadcast(this, 99, Intent(this, RestartReceiver::class.java).apply { action = "HEARTBEAT_RESTART" }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val triggerTime = SystemClock.elapsedRealtime() + (15 * 60 * 1000) // Changed to 15 mins for battery saving
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent)
-            } else {
-                alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent)
-            }
-        } catch (e: Exception) { alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, pendingIntent) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, intent)
+            else alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, intent)
+        } catch (e: Exception) { alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, intent) }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val restartIntent = Intent(this, RestartReceiver::class.java).apply { action = "RESTART_THEFTGUARD" }
+        val pendingIntent = PendingIntent.getBroadcast(this, 1, restartIntent, PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
+        val alarmService = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmService.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pendingIntent)
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun createNotification(): Notification {
@@ -401,32 +372,17 @@ class TheftGuardService : LifecycleService() {
             if (mediaPlayer?.isPlaying == true) return
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             audioManager.setStreamVolume(AudioManager.STREAM_ALARM, audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
-            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             mediaPlayer = android.media.MediaPlayer().apply { 
-                setDataSource(applicationContext, alarmUri)
+                setDataSource(applicationContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
                 setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ALARM).build())
                 isLooping = true; prepare(); start() 
             }
         } catch (e: Exception) { }
     }
 
-    private fun playEmergencyAlarm() {
-        if (!isEmergencyAlarmActive && sharedPreferences.getBoolean("AlarmEnabled", false)) {
-            isEmergencyAlarmActive = true
-            mainHandler.post(unlockWatchdog)
-            playLoudAlarm()
-        }
-    }
+    private fun playEmergencyAlarm() { if (!isEmergencyAlarmActive && sharedPreferences.getBoolean("AlarmEnabled", false)) { isEmergencyAlarmActive = true; mainHandler.post(unlockWatchdog); playLoudAlarm() } }
 
-    private fun stopAlarm() { 
-        isEmergencyAlarmActive = false
-        mainHandler.removeCallbacks(unlockWatchdog)
-        mediaPlayer?.let { try { it.stop(); it.release() } catch (e: Exception) {} }
-        mediaPlayer = null 
-    }
+    private fun stopAlarm() { isEmergencyAlarmActive = false; mainHandler.removeCallbacks(unlockWatchdog); mediaPlayer?.let { try { it.stop(); it.release() } catch (e: Exception) {} }; mediaPlayer = null }
 
-    override fun onDestroy() { 
-        super.onDestroy()
-        emailExecutor.shutdown()
-    }
+    override fun onDestroy() { super.onDestroy(); emailExecutor.shutdown() }
 }
