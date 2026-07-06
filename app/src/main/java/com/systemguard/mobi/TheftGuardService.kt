@@ -24,7 +24,10 @@ import androidx.lifecycle.LifecycleService
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.Tasks
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -56,7 +59,9 @@ class TheftGuardService : LifecycleService() {
                 } else {
                     context.startService(intent)
                 }
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+                Log.e("TheftGuard", "Service start failed: ${e.message}")
+            }
         }
     }
 
@@ -91,7 +96,7 @@ class TheftGuardService : LifecycleService() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TheftGuard::WakeLock")
         if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(5 * 60 * 1000L) // Reduced to 5 mins
+            wakeLock?.acquire(5 * 60 * 1000L)
         }
     }
 
@@ -128,7 +133,6 @@ class TheftGuardService : LifecycleService() {
             simReceiver = SimStateReceiver()
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_USER_PRESENT)
-                // Removed SCREEN_ON/OFF for battery saving
                 priority = 1000
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(simReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -162,7 +166,11 @@ class TheftGuardService : LifecycleService() {
         
         if (action == "STOP_ALARM_BY_SIM") stopAlarm()
 
-        if (attempts >= 4) captureAndProcess(attempts)
+        // ১, ২, ৩ নম্বর ভুল হলে কিছুই হবে না
+        if (attempts >= 4) {
+            captureAndProcess(attempts)
+        }
+        
         if (action == "START_EMERGENCY_ALARM") playEmergencyAlarm()
 
         scheduleWatchdog()
@@ -260,23 +268,15 @@ class TheftGuardService : LifecycleService() {
                     try {
                         val loc = fetchLocationBlocking()
                         sharedPreferences.edit(commit = true) { putString("LastLocation", loc) }
-                        
-                        val pendingPhotoUri = if (attempts == 5 || attempts == 10) {
-                            sharedPreferences.getString("LastPhotoPendingUri", null)
-                        } else null
+                        val pendingPhotoUri = if (attempts == 5 || attempts == 10) sharedPreferences.getString("LastPhotoPendingUri", null) else null
                         
                         if (isNetworkAvailable()) {
                             sendEmailWithUris(email, pendingPhotoUri, uri.toString(), loc, attempts)
                         } else {
-                            sharedPreferences.edit(commit = true) { 
-                                putBoolean("EmailPending", true) 
-                                putInt("PendingEmailAttempt", attempts)
-                            }
+                            sharedPreferences.edit(commit = true) { putBoolean("EmailPending", true); putInt("PendingEmailAttempt", attempts) }
                         }
                         
-                        if (attempts == 5 || attempts == 10) {
-                            sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", null) }
-                        }
+                        if (attempts == 5 || attempts == 10) sharedPreferences.edit(commit = true) { putString("LastPhotoPendingUri", null) }
                     } catch (e: Exception) { }
                 }
             }
@@ -285,35 +285,57 @@ class TheftGuardService : LifecycleService() {
 
     private fun sendEmailWithUris(userEmail: String, uri1: String?, uri2: String, location: String, attempts: Int) {
         try {
-            val scope = "oauth2:https://mail.google.com/"
+            val scope = "oauth2:https://www.googleapis.com/auth/gmail.send"
+            
+            // টোকেন রিফ্রেশ
+            try {
+                val oldToken = com.google.android.gms.auth.GoogleAuthUtil.getToken(this, userEmail, scope)
+                com.google.android.gms.auth.GoogleAuthUtil.clearToken(this, oldToken)
+            } catch (e: Exception) {}
+
             val accessToken = com.google.android.gms.auth.GoogleAuthUtil.getToken(this, userEmail, scope)
 
-            val props = Properties().apply {
-                put("mail.smtp.host", "smtp.gmail.com")
-                put("mail.smtp.port", "465")
-                put("mail.smtp.auth", "true")
-                put("mail.smtp.ssl.enable", "true")
-                put("mail.smtp.auth.mechanisms", "XOAUTH2")
-                put("mail.smtp.socketFactory.port", "465")
-                put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
-                put("mail.smtp.connectiontimeout", "30000")
-                put("mail.smtp.timeout", "30000")
-            }
-            val mm = MimeMessage(Session.getInstance(props)).apply {
+            // ১. MimeMessage তৈরি করা
+            val props = Properties()
+            val session = Session.getInstance(props)
+            val mm = MimeMessage(session).apply {
                 setFrom(InternetAddress(userEmail))
                 addRecipient(javax.mail.Message.RecipientType.TO, InternetAddress(userEmail))
                 subject = "TheftGuard Security Alert! Attempt $attempts"
             }
             val multipart = MimeMultipart()
             multipart.addBodyPart(MimeBodyPart().apply { setText("Intruder Location:\n$location\n\nLatest photos attached.") })
+            
             uri1?.let { try { addUriAttachment(multipart, Uri.parse(it), "Attempt_${if (attempts == 5) 4 else 9}.jpg") } catch (e: Exception) { } }
             try { addUriAttachment(multipart, Uri.parse(uri2), "Attempt_$attempts.jpg") } catch (e: Exception) { }
+            
             mm.setContent(multipart)
-            val transport = Session.getInstance(props).getTransport("smtp")
-            transport.connect("smtp.gmail.com", userEmail, accessToken)
-            transport.sendMessage(mm, mm.allRecipients); transport.close()
-            sharedPreferences.edit(commit = true) { putBoolean("EmailPending", false) }
+            
+            // ২. RAW ডাটা তৈরি
+            val baos = ByteArrayOutputStream()
+            mm.writeTo(baos)
+            val rawMessage = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+
+            // ৩. Gmail REST API এর মাধ্যমে মেইল পাঠানো (Turbo Speed)
+            val url = URL("https://www.googleapis.com/gmail/v1/users/me/messages/send")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Authorization", "Bearer $accessToken")
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            
+            val jsonBody = "{\"raw\":\"$rawMessage\"}"
+            conn.outputStream.write(jsonBody.toByteArray())
+            
+            if (conn.responseCode == 200) {
+                sharedPreferences.edit(commit = true) { putBoolean("EmailPending", false) }
+                Log.i("TheftGuard", "EMAIL SENT SUCCESS via REST API")
+            } else {
+                throw Exception("API Response: ${conn.responseCode}")
+            }
+            conn.disconnect()
         } catch (e: Exception) { 
+            Log.e("TheftGuard", "REST Email failed: ${e.message}")
             sharedPreferences.edit(commit = true) { putBoolean("EmailPending", true); putInt("PendingEmailAttempt", attempts) }
         }
     }
@@ -335,7 +357,7 @@ class TheftGuardService : LifecycleService() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return "No Permission"
         return try {
             val task = LocationServices.getFusedLocationProviderClient(this).getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            val loc = Tasks.await(task, 12, TimeUnit.SECONDS)
+            val loc = Tasks.await(task, 5, TimeUnit.SECONDS)
             if (loc != null) "Lat: ${loc.latitude}, Lng: ${loc.longitude}\nMaps: https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}"
             else "Location Timeout"
         } catch (e: Exception) { "Location Error" }
@@ -344,7 +366,7 @@ class TheftGuardService : LifecycleService() {
     private fun scheduleWatchdog() {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = PendingIntent.getBroadcast(this, 99, Intent(this, RestartReceiver::class.java).apply { action = "HEARTBEAT_RESTART" }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val triggerTime = SystemClock.elapsedRealtime() + (15 * 60 * 1000) // Changed to 15 mins for battery saving
+        val triggerTime = SystemClock.elapsedRealtime() + (15 * 60 * 1000)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, intent)
             else alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerTime, intent)

@@ -148,8 +148,8 @@ fun TheftGuardDashboard() {
 
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestEmail()
+        .requestScopes(Scope("https://www.googleapis.com/auth/gmail.send"))
         .requestIdToken("47264005282-36f4ic3haki344qpi4mksjgdolaho5k0.apps.googleusercontent.com")
-        .requestScopes(Scope("https://mail.google.com/"))
         .build()
     val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
 
@@ -157,10 +157,20 @@ fun TheftGuardDashboard() {
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account: GoogleSignInAccount? = task.getResult(ApiException::class.java)
-            account?.email?.let {
-                gmailId = it
-                sharedPreferences.edit { putString("UserEmail", it) }
-                Toast.makeText(context, "Logged in as $it", Toast.LENGTH_SHORT).show()
+            if (account != null) {
+                gmailId = account.email ?: "Unknown"
+                sharedPreferences.edit { putString("UserEmail", gmailId) }
+                Toast.makeText(context, "Logged in as $gmailId", Toast.LENGTH_SHORT).show()
+                
+                // যদি ইমেইল পারমিশন আগে থেকে না থাকে, তবে জোরালোভাবে চাওয়া হবে
+                if (!GoogleSignIn.hasPermissions(account, Scope("https://www.googleapis.com/auth/gmail.send"))) {
+                    GoogleSignIn.requestPermissions(
+                        context as ComponentActivity,
+                        1001,
+                        account,
+                        Scope("https://www.googleapis.com/auth/gmail.send")
+                    )
+                }
             }
         } catch (e: ApiException) {
             Toast.makeText(context, "Sign in failed: ${e.message}", Toast.LENGTH_LONG).show()
